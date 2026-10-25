@@ -1,0 +1,117 @@
+{
+  "realm": "medicitas",
+  "enabled": true,
+  "displayName": "MediCitas",
+  "registrationAllowed": false,
+  "resetPasswordAllowed": false,
+  "rememberMe": false,
+
+  "roles": {
+    "realm": [
+      {
+        "name": "platform_admin",
+        "description": "Administrador de la plataforma MediCitas"
+      },
+      {
+        "name": "clinic_admin",
+        "description": "Administrador de una clínica"
+      },
+      {
+        "name": "reception",
+        "description": "Personal de recepción"
+      },
+      {
+        "name": "practitioner",
+        "description": "Profesional de salud"
+      }
+    ]
+  },
+
+  "clients": [
+    {
+      "clientId": "medicitas-api",
+      "name": "MediCitas API",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false
+    }
+  ],
+
+  "users": [
+    {
+      "username": "platform.admin",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Platform",
+      "lastName": "Admin",
+      "email": "platform.admin@medicitas.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Platform123!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "platform_admin"
+      ]
+    },
+    {
+      "username": "clinic.admin",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Clinic",
+      "lastName": "Admin",
+      "email": "clinic.admin@medicitas.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Clinic123!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "clinic_admin"
+      ]
+    },
+    {
+      "username": "reception",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Reception",
+      "lastName": "Test",
+      "email": "reception@medicitas.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Reception123!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "reception"
+      ]
+    },
+    {
+      "username": "practitioner",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Practitioner",
+      "lastName": "Test",
+      "email": "practitioner@medicitas.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Practitioner123!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "practitioner"
+      ]
+    }
+  ]
+}
