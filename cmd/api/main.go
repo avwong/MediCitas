@@ -59,6 +59,12 @@ func main() {
 		})
 	})
 
+	protected.GET("/auth/clinic-admin-check", auth.RequirePermission(auth.PermissionClinicManage), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"message": "clinic administration permission granted",
+		})
+	})
+
 	port := os.Getenv("APP_PORT")
 	if port == "" {
 		port = "8080"

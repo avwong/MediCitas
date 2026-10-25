@@ -13,6 +13,10 @@ type Claims struct {
 	PreferredUsername string `json:"preferred_username"`
 	Email             string `json:"email"`
 	AuthorizedParty   string `json:"azp"`
+
+	RealmAccess struct {
+		Roles []string `json:"roles"`
+	} `json:"realm_access"`
 }
 
 type Verifier struct {

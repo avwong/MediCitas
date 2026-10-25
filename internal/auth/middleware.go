@@ -35,3 +35,32 @@ func (v *Verifier) Middleware() gin.HandlerFunc {
 		c.Next()
 	}
 }
+
+func RequirePermission(permission Permission) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		claimsValue, exists := c.Get(ClaimsContextKey)
+		if !exists {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error": "unauthorized",
+			})
+			return
+		}
+
+		claims, ok := claimsValue.(*Claims)
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error": "unauthorized",
+			})
+			return
+		}
+
+		if !HasPermission(claims, permission) {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+				"error": "forbidden",
+			})
+			return
+		}
+
+		c.Next()
+	}
+}
