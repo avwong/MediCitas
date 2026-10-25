@@ -18,6 +18,9 @@ services:
       REDIS_PORT: "6379"
 
       KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_ISSUER_URL: ${KEYCLOAK_ISSUER_URL}
+      KEYCLOAK_JWKS_URL: ${KEYCLOAK_JWKS_URL}
+      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID}
     ports:
       - "127.0.0.1:${APP_PORT}:8080"
     depends_on:
