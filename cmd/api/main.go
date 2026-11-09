@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/avwong/MediCitas/internal/auth"
+	"github.com/avwong/MediCitas/internal/platform"
 	"github.com/avwong/MediCitas/internal/storage/postgres"
 	"github.com/avwong/MediCitas/internal/tenancy"
 	"github.com/gin-gonic/gin"
@@ -27,13 +28,14 @@ func main() {
 	}
 	defer dbPool.Close()
 
-	// Repository used to associate an authenticated Keycloak identity
-	// with the corresponding MediCitas user and clinic.
+	// Identity -> internal user -> tenant resolution.
 	identityRepository := postgres.NewIdentityRepository(dbPool)
-
-	// Tenant resolver derives UserID, ClinicID and Role from the
-	// authenticated identity. The tenant is never trusted from request input.
 	tenantResolver := tenancy.NewResolver(identityRepository)
+
+	// Platform application layers.
+	platformRepository := postgres.NewPlatformRepository(dbPool)
+	platformService := platform.NewService(platformRepository)
+	platformHandler := platform.NewHandler(platformService)
 
 	router := gin.New()
 
@@ -59,16 +61,14 @@ func main() {
 		log.Fatalf("configure OIDC verifier: %v", err)
 	}
 
-	// Protected API.
+	// All routes below require:
+	// 1. a valid Keycloak token;
+	// 2. a corresponding active MediCitas identity.
 	protected := router.Group("/api/v1")
-
-	// First: authenticate the caller and validate the JWT.
 	protected.Use(authVerifier.Middleware())
-
-	// Second: resolve the authenticated identity to the internal
-	// MediCitas user and tenant.
 	protected.Use(tenantResolver.Middleware())
 
+	// Authentication/tenant inspection endpoint.
 	protected.GET("/auth/me", func(c *gin.Context) {
 		claimsValue, exists := c.Get(auth.ClaimsContextKey)
 		if !exists {
@@ -104,6 +104,7 @@ func main() {
 		})
 	})
 
+	// Diagnostic authorization endpoint.
 	protected.GET(
 		"/auth/clinic-admin-check",
 		auth.RequirePermission(auth.PermissionClinicManage),
@@ -112,6 +113,59 @@ func main() {
 				"message": "clinic administration permission granted",
 			})
 		},
+	)
+
+	// ---------------------------------------------------------------------
+	// RF1 - Platform administration
+	// ---------------------------------------------------------------------
+
+	// Only a platform administrator may register a new clinic.
+	protected.POST(
+		"/platform/clinics",
+		auth.RequirePermission(auth.PermissionPlatformManage),
+		platformHandler.CreateClinic,
+	)
+
+	// ---------------------------------------------------------------------
+	// RF2 - Clinic users
+	// ---------------------------------------------------------------------
+
+	protected.POST(
+		"/users",
+		auth.RequirePermission(auth.PermissionClinicManage),
+		platformHandler.CreateUser,
+	)
+
+	protected.PATCH(
+		"/users/:id/role",
+		auth.RequirePermission(auth.PermissionClinicManage),
+		platformHandler.UpdateUserRole,
+	)
+
+	protected.DELETE(
+		"/users/:id",
+		auth.RequirePermission(auth.PermissionClinicManage),
+		platformHandler.DeactivateUser,
+	)
+
+	// ---------------------------------------------------------------------
+	// RF3 - Clinic service catalog
+	// ---------------------------------------------------------------------
+
+	protected.POST(
+		"/services",
+		auth.RequirePermission(auth.PermissionClinicManage),
+		platformHandler.CreateService,
+	)
+
+	// ---------------------------------------------------------------------
+	// RF4 - Practitioners and supported services
+	// ---------------------------------------------------------------------
+
+	protected.POST(
+		"/practitioners",
+		auth.RequirePermission(auth.PermissionClinicManage),
+		platformHandler.CreatePractitioner,
 	)
 
 	port := os.Getenv("APP_PORT")
