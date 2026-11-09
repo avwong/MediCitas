@@ -70,6 +70,12 @@ func AccessLog(logger *slog.Logger) gin.HandlerFunc {
 		c.Next()
 
 		route := c.FullPath()
+
+		// Health probes run every few seconds; logging them buries real traffic.
+		if (route == "/health" || route == "/ready") && c.Writer.Status() < 400 {
+			return
+		}
+
 		if route == "" {
 			route = "unmatched"
 		}
