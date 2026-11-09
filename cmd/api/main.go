@@ -1,15 +1,31 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"os"
 
 	"github.com/avwong/MediCitas/internal/auth"
+	"github.com/avwong/MediCitas/internal/storage/postgres"
 	"github.com/gin-gonic/gin"
 )
 
 func main() {
+
+	ctx := context.Background()
+
+	dbConfig, err := postgres.ConfigFromEnv()
+	if err != nil {
+		log.Fatalf("configure PostgreSQL: %v", err)
+	}
+
+	dbPool, err := postgres.Open(ctx, dbConfig)
+	if err != nil {
+		log.Fatalf("connect PostgreSQL: %v", err)
+	}
+	defer dbPool.Close()
+
 	router := gin.New()
 
 	router.Use(
