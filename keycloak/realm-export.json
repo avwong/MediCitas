@@ -14,11 +14,11 @@
       },
       {
         "name": "clinic_admin",
-        "description": "Administrador de una clínica"
+        "description": "Administrador de una clÃ­nica"
       },
       {
         "name": "reception",
-        "description": "Personal de recepción"
+        "description": "Personal de recepciÃ³n"
       },
       {
         "name": "practitioner",
@@ -47,7 +47,7 @@
     {
       "clientId": "medicitas-cli",
       "name": "MediCitas CLI y pruebas",
-      "description": "Cliente público para obtener tokens de usuario desde la línea de comandos y las pruebas.",
+      "description": "Cliente pÃºblico para obtener tokens de usuario desde la lÃ­nea de comandos y las pruebas.",
       "enabled": true,
       "protocol": "openid-connect",
       "publicClient": true,
@@ -89,12 +89,68 @@
     {
       "clientId": "tenancy-service",
       "name": "Servicio Tenancy",
-      "description": "Cuenta de servicio de Tenancy: administra usuarios y aprovisiona clínicas en Agenda.",
+      "description": "Cuenta de servicio de Tenancy: administra usuarios y aprovisiona clÃ­nicas en Agenda.",
       "enabled": true,
       "protocol": "openid-connect",
       "publicClient": false,
       "clientAuthenticatorType": "client-secret",
       "secret": "${TENANCY_CLIENT_SECRET}",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "protocolMappers": [
+        {
+          "name": "medicitas-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "medicitas-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "agenda-service",
+      "name": "Servicio Agenda",
+      "description": "Cuenta de servicio de Agenda para entregar eventos de auditoría.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${AGENDA_CLIENT_SECRET}",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "protocolMappers": [
+        {
+          "name": "medicitas-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "medicitas-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "expediente-service",
+      "name": "Servicio Expediente",
+      "description": "Cuenta de servicio de Expediente para entregar eventos de auditoría.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${EXPEDIENTE_CLIENT_SECRET}",
       "standardFlowEnabled": false,
       "implicitFlowEnabled": false,
       "directAccessGrantsEnabled": false,
@@ -283,6 +339,22 @@
           "view-realm"
         ]
       }
+    },
+    {
+      "username": "service-account-agenda-service",
+      "enabled": true,
+      "serviceAccountClientId": "agenda-service",
+      "realmRoles": [
+        "service"
+      ]
+    },
+    {
+      "username": "service-account-expediente-service",
+      "enabled": true,
+      "serviceAccountClientId": "expediente-service",
+      "realmRoles": [
+        "service"
+      ]
     }
   ]
 }

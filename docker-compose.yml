@@ -11,6 +11,7 @@ x-service-environment: &service-environment
   # inside the network.
   OIDC_ISSUER_URL: ${KEYCLOAK_PUBLIC_URL}/realms/medicitas
   OIDC_JWKS_URL: http://keycloak:8080/realms/medicitas/protocol/openid-connect/certs
+  OIDC_TOKEN_URL: http://keycloak:8080/realms/medicitas/protocol/openid-connect/token
   OIDC_AUDIENCE: medicitas-api
 
 x-service-healthcheck: &service-healthcheck
@@ -84,6 +85,9 @@ services:
       DB_PASSWORD: ${AGENDA_DB_APP_PASSWORD}
       TENANCY_URL: http://tenancy:8080
       TENANCY_SERVICE_CLIENT_ID: tenancy-service
+      AUDIT_URL: http://audit:8080
+      OUTBOX_CLIENT_ID: agenda-service
+      OUTBOX_CLIENT_SECRET: ${AGENDA_CLIENT_SECRET}
     healthcheck: *service-healthcheck
     depends_on:
       <<: *service-dependencies
@@ -103,6 +107,9 @@ services:
       DB_USER: expediente_app
       DB_PASSWORD: ${EXPEDIENTE_DB_APP_PASSWORD}
       AGENDA_URL: http://agenda:8080
+      AUDIT_URL: http://audit:8080
+      OUTBOX_CLIENT_ID: expediente-service
+      OUTBOX_CLIENT_SECRET: ${EXPEDIENTE_CLIENT_SECRET}
     healthcheck: *service-healthcheck
     depends_on:
       <<: *service-dependencies
@@ -119,6 +126,8 @@ services:
       DB_NAME: audit_db
       DB_USER: audit_app
       DB_PASSWORD: ${AUDIT_DB_APP_PASSWORD}
+      AGENDA_SERVICE_CLIENT_ID: agenda-service
+      EXPEDIENTE_SERVICE_CLIENT_ID: expediente-service
     healthcheck: *service-healthcheck
     depends_on:
       <<: *service-dependencies
@@ -237,6 +246,18 @@ services:
     depends_on:
       db-init:
         condition: service_completed_successfully
+  migrate-audit:
+    image: migrate/migrate:v4.18.3
+    container_name: medicitas-migrate-audit
+    volumes:
+      - ./migrations/audit:/migrations:ro
+    command:
+      - "-path=/migrations"
+      - "-database=postgres://audit_owner:${AUDIT_DB_OWNER_PASSWORD}@postgres:5432/audit_db?sslmode=disable"
+      - "up"
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
   db-seed:
     image: postgres:17-alpine
     container_name: medicitas-db-seed
@@ -258,6 +279,8 @@ services:
       migrate-agenda:
         condition: service_completed_successfully
       migrate-expediente:
+        condition: service_completed_successfully
+      migrate-audit:
         condition: service_completed_successfully
 
   redis:
@@ -281,6 +304,8 @@ services:
       KC_HEALTH_ENABLED: "true"
       # Resolved by the ${TENANCY_CLIENT_SECRET} placeholder in the realm file.
       TENANCY_CLIENT_SECRET: ${TENANCY_CLIENT_SECRET}
+      AGENDA_CLIENT_SECRET: ${AGENDA_CLIENT_SECRET}
+      EXPEDIENTE_CLIENT_SECRET: ${EXPEDIENTE_CLIENT_SECRET}
     ports:
       - "127.0.0.1:${KEYCLOAK_PORT}:8080"
     volumes:

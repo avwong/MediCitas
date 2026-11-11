@@ -1,5 +1,3 @@
-// Command audit runs the audit service: the append-only log of who read or
-// changed clinical notes and patient contact data (RF18, RF19).
 package main
 
 import (
@@ -15,7 +13,11 @@ import (
 )
 
 func main() {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(
+		context.Background(),
+		os.Interrupt,
+		syscall.SIGTERM,
+	)
 	defer stop()
 
 	if err := run(ctx); err != nil {
@@ -27,12 +29,40 @@ func main() {
 func run(ctx context.Context) error {
 	env := &config.Loader{}
 
+	agendaClientID := env.Optional(
+		"AGENDA_SERVICE_CLIENT_ID",
+		"agenda-service",
+	)
+
+	expedienteClientID := env.Optional(
+		"EXPEDIENTE_SERVICE_CLIENT_ID",
+		"expediente-service",
+	)
+
 	app, err := bootstrap.New(ctx, "audit", env)
 	if err != nil {
 		return err
 	}
 
-	audit.RegisterRoutes(app.API, app.Router.Group("/internal", app.Verifier.Authenticate()))
+	store := audit.NewPostgresStore(app.DB)
+	service := audit.NewService(store)
+
+	handler := audit.NewHandler(
+		service,
+		app.Logger,
+		map[string]string{
+			agendaClientID:     "agenda",
+			expedienteClientID: "expediente",
+		},
+	)
+
+	handler.RegisterRoutes(
+		app.API,
+		app.Router.Group(
+			"/internal",
+			app.Verifier.Authenticate(),
+		),
+	)
 
 	return app.Run(ctx)
 }
