@@ -84,3 +84,28 @@ decision.
 
 This security layer establishes the migration, runtime and read-only profiles
 without coupling it to that later decision.
+
+## Automated privilege verification
+
+The privilege model is verified against a real PostgreSQL instance:
+
+```bash
+docker compose run --rm db-init
+docker compose --profile test run --rm db-security-test
+```
+
+The integration test verifies both allowed and prohibited operations:
+
+- migration owners can perform DDL only in their own database;
+- runtime application roles cannot perform DDL;
+- runtime application roles cannot create temporary tables;
+- application roles cannot assume owner roles;
+- normal application roles can perform their required DML;
+- `audit_app` can insert and read but cannot update or delete;
+- read-only identities can select but cannot write;
+- service identities cannot connect to another service database;
+- none of the service identities has superuser, database-creation,
+  role-creation, replication or RLS-bypass privileges.
+
+The script exits with a non-zero status immediately if a prohibited operation
+unexpectedly succeeds.
