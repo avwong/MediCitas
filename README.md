@@ -218,6 +218,27 @@ Inmutabilidad e idempotencia de auditoría:
 ~~~bash
 docker compose --profile test run --rm audit-invariants-test
 ~~~
+Autenticación real, permisos, proxy y aislamiento entre clínicas:
+
+~~~bash
+docker compose --profile test run --build --rm p1-api-integration-test
+~~~
+
+Entrega real de los relays de Agenda y Expediente hacia Audit:
+
+~~~bash
+docker compose --profile test run --rm audit-relay-test
+~~~
+
+La verificación completa de P1 puede ejecutarse con un solo comando:
+
+~~~powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\verify-p1.ps1
+~~~
+
+También existe `scripts/verify-p1.sh` para entornos Unix. El detalle de lo que
+demuestra cada prueba y la frontera de entrega para P2/P3 está documentado en
+[`docs/p1-verification.md`](docs/p1-verification.md).
 
 Las pruebas unitarias cubren actualmente autenticación/autorización, mapeo de errores, saga de clínicas, catálogo, outbox, Auditoría y el núcleo de Expediente RF15.
 
@@ -259,4 +280,4 @@ docs/                    arquitectura y contratos entre servicios
 | Infraestructura RF18: outbox transaccional, relay, bitácora central idempotente e inmutable | Productor RF18 de contacto de pacientes cuando RF14 sea implementado |
 | Bases por servicio, owner/app/readonly y aislamiento de credenciales | RLS y roles de dominio alineados con la matriz, según el módulo del equipo |
 | JWT/OIDC, permisos, signed `clinic_id`, saga RF1 y clientes service-to-service | Disponibilidad, concurrencia de citas, caché Redis y pruebas de carrera |
-| Tests reales de privilegios e invariantes de auditoría | Suite de integración completa contra todos los RF restantes |
+| Tests reales de privilegios, invariantes de auditoría, JWT/proxy, aislamiento multi-tenant y entrega de relays | Suite de integración de los RF restantes de Agenda |

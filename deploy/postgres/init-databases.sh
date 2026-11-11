@@ -205,6 +205,42 @@ setup_service audit \
   "$AUDIT_DB_READONLY_PASSWORD" \
   "SELECT, INSERT"
 
+# Reapply table-specific least privilege when db-init runs against an already
+# migrated database. On a fresh database these tables do not exist yet and
+# the migrations apply the same restrictions when they create them.
+revoke_mutation_if_exists() {
+  database="$1"
+  role="$2"
+  table="$3"
+
+  psql \
+    -v ON_ERROR_STOP=1 \
+    -d "$database" \
+    -v target_role="$role" \
+    -v target_table="$table" <<'SQL'
+SELECT format(
+  'REVOKE UPDATE, DELETE, TRUNCATE ON TABLE %I FROM %I',
+  :'target_table',
+  :'target_role'
+)
+WHERE to_regclass(format('public.%I', :'target_table')) IS NOT NULL
+\gexec
+SQL
+}
+
+# Producer outboxes and delivery markers are append-oriented.
+revoke_mutation_if_exists agenda_db agenda_app audit_outbox
+revoke_mutation_if_exists agenda_db agenda_app audit_outbox_delivered
+
+revoke_mutation_if_exists expediente_db expediente_app audit_outbox
+revoke_mutation_if_exists expediente_db expediente_app audit_outbox_delivered
+
+# RF15 defines creation and reading, not mutation or deletion of clinical
+# notes.
+revoke_mutation_if_exists expediente_db expediente_app clinical_notes
+
+# Defense in depth for the central append-only audit log.
+revoke_mutation_if_exists audit_db audit_app audit_log
 # Appointment exclusion constraints require btree_gist. Infrastructure creates
 # the extension so migration roles never require superuser privileges.
 psql \
