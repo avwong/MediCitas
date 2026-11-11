@@ -258,6 +258,31 @@ services:
     depends_on:
       db-init:
         condition: service_completed_successfully
+  # --------------------------------------------------------------------------
+  # Audit/outbox integration test
+  # --------------------------------------------------------------------------
+  audit-invariants-test:
+    profiles: ["test"]
+    image: postgres:17-alpine
+    container_name: medicitas-audit-invariants-test
+    environment:
+      PGHOST: postgres
+      AGENDA_DB_OWNER_PASSWORD: ${AGENDA_DB_OWNER_PASSWORD}
+      AGENDA_DB_APP_PASSWORD: ${AGENDA_DB_APP_PASSWORD}
+      EXPEDIENTE_DB_OWNER_PASSWORD: ${EXPEDIENTE_DB_OWNER_PASSWORD}
+      EXPEDIENTE_DB_APP_PASSWORD: ${EXPEDIENTE_DB_APP_PASSWORD}
+      AUDIT_DB_OWNER_PASSWORD: ${AUDIT_DB_OWNER_PASSWORD}
+      AUDIT_DB_APP_PASSWORD: ${AUDIT_DB_APP_PASSWORD}
+    volumes:
+      - ./deploy/postgres/test-audit-invariants.sh:/test-audit-invariants.sh:ro
+    entrypoint: ["sh", "/test-audit-invariants.sh"]
+    depends_on:
+      migrate-agenda:
+        condition: service_completed_successfully
+      migrate-expediente:
+        condition: service_completed_successfully
+      migrate-audit:
+        condition: service_completed_successfully
   db-seed:
     image: postgres:17-alpine
     container_name: medicitas-db-seed
