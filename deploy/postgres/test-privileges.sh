@@ -120,6 +120,26 @@ check_role_flags() {
      WHERE rolname = current_user;"
 }
 
+check_select_insert_only() {
+  role="$1"
+  password="$2"
+  database="$3"
+  table="$4"
+
+  expect_value \
+    "$role has SELECT/INSERT only on $table" \
+    "ok" \
+    query_psql "$role" "$password" "$database" \
+    "SELECT CASE
+       WHEN has_table_privilege(current_user, 'public.${table}', 'SELECT')
+        AND has_table_privilege(current_user, 'public.${table}', 'INSERT')
+        AND NOT has_table_privilege(current_user, 'public.${table}', 'UPDATE')
+        AND NOT has_table_privilege(current_user, 'public.${table}', 'DELETE')
+        AND NOT has_table_privilege(current_user, 'public.${table}', 'TRUNCATE')
+       THEN 'ok'
+       ELSE 'bad'
+     END;"
+}
 check_service() {
   service="$1"
   owner_password="$2"
@@ -267,6 +287,44 @@ check_service \
   "$AUDIT_DB_READONLY_PASSWORD" \
   no
 
+echo ""
+echo "== sensitive-table least privilege =="
+
+check_select_insert_only \
+  agenda_app \
+  "$AGENDA_DB_APP_PASSWORD" \
+  agenda_db \
+  audit_outbox
+
+check_select_insert_only \
+  agenda_app \
+  "$AGENDA_DB_APP_PASSWORD" \
+  agenda_db \
+  audit_outbox_delivered
+
+check_select_insert_only \
+  expediente_app \
+  "$EXPEDIENTE_DB_APP_PASSWORD" \
+  expediente_db \
+  audit_outbox
+
+check_select_insert_only \
+  expediente_app \
+  "$EXPEDIENTE_DB_APP_PASSWORD" \
+  expediente_db \
+  audit_outbox_delivered
+
+check_select_insert_only \
+  expediente_app \
+  "$EXPEDIENTE_DB_APP_PASSWORD" \
+  expediente_db \
+  clinical_notes
+
+check_select_insert_only \
+  audit_app \
+  "$AUDIT_DB_APP_PASSWORD" \
+  audit_db \
+  audit_log
 echo ""
 echo "== cross-service database isolation =="
 

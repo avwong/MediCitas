@@ -205,7 +205,13 @@ services:
       - ./deploy/postgres/test-privileges.sh:/test-privileges.sh:ro
     entrypoint: ["sh", "/test-privileges.sh"]
     depends_on:
-      db-init:
+      migrate-tenancy:
+        condition: service_completed_successfully
+      migrate-agenda:
+        condition: service_completed_successfully
+      migrate-expediente:
+        condition: service_completed_successfully
+      migrate-audit:
         condition: service_completed_successfully
   # Migrations run as each database's owner role.
   migrate-tenancy:
