@@ -133,7 +133,8 @@ psql_as \
   agenda_db \
   -c "
     INSERT INTO audit_outbox_delivered (event_id)
-    VALUES ('$agenda_event');
+    VALUES ('$agenda_event')
+    ON CONFLICT (event_id) DO NOTHING;
   " >/dev/null
 
 echo "ok - agenda relay can record delivery separately"
@@ -224,7 +225,8 @@ psql_as \
   expediente_db \
   -c "
     INSERT INTO audit_outbox_delivered (event_id)
-    VALUES ('$exp_event');
+    VALUES ('$exp_event')
+    ON CONFLICT (event_id) DO NOTHING;
   " >/dev/null
 
 echo "ok - expediente relay can record delivery separately"
