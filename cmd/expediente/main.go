@@ -44,13 +44,21 @@ func run(ctx context.Context) error {
 		return err
 	}
 
-	expediente.RegisterRoutes(
-		app.API,
-		expediente.Dependencies{
-			Logger:    app.Logger,
-			AgendaURL: agendaURL,
-		},
+	noteStore := expediente.NewPostgresStore()
+	appointmentVerifier := expediente.NewAgendaClient(agendaURL)
+
+	noteService := expediente.NewService(
+		noteStore,
+		appointmentVerifier,
+		app.Tx,
+		outbox.NewWriter("expediente"),
 	)
+
+	noteHandler := expediente.NewHandler(
+		noteService,
+		app.Logger,
+	)
+	noteHandler.RegisterRoutes(app.API)
 
 	tokenSource := svcclient.NewClientCredentials(
 		tokenURL,
