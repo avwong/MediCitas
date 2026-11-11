@@ -141,7 +141,7 @@ services:
       timeout: 5s
       retries: 20
 
-  # Creates one database and two roles per service. Idempotent.
+  # Creates one database and three least-privilege roles per service. Idempotent.
   db-init:
     image: postgres:17-alpine
     container_name: medicitas-db-init
@@ -152,12 +152,16 @@ services:
       PGDATABASE: postgres
       TENANCY_DB_OWNER_PASSWORD: ${TENANCY_DB_OWNER_PASSWORD}
       TENANCY_DB_APP_PASSWORD: ${TENANCY_DB_APP_PASSWORD}
+      TENANCY_DB_READONLY_PASSWORD: ${TENANCY_DB_READONLY_PASSWORD}
       AGENDA_DB_OWNER_PASSWORD: ${AGENDA_DB_OWNER_PASSWORD}
       AGENDA_DB_APP_PASSWORD: ${AGENDA_DB_APP_PASSWORD}
+      AGENDA_DB_READONLY_PASSWORD: ${AGENDA_DB_READONLY_PASSWORD}
       EXPEDIENTE_DB_OWNER_PASSWORD: ${EXPEDIENTE_DB_OWNER_PASSWORD}
       EXPEDIENTE_DB_APP_PASSWORD: ${EXPEDIENTE_DB_APP_PASSWORD}
+      EXPEDIENTE_DB_READONLY_PASSWORD: ${EXPEDIENTE_DB_READONLY_PASSWORD}
       AUDIT_DB_OWNER_PASSWORD: ${AUDIT_DB_OWNER_PASSWORD}
       AUDIT_DB_APP_PASSWORD: ${AUDIT_DB_APP_PASSWORD}
+      AUDIT_DB_READONLY_PASSWORD: ${AUDIT_DB_READONLY_PASSWORD}
     volumes:
       - ./deploy/postgres/init-databases.sh:/init-databases.sh:ro
     entrypoint: ["sh", "/init-databases.sh"]
@@ -165,6 +169,35 @@ services:
       postgres:
         condition: service_healthy
 
+  # --------------------------------------------------------------------------
+  # PostgreSQL least-privilege integration test
+  # --------------------------------------------------------------------------
+  db-security-test:
+    profiles: ["test"]
+    image: postgres:17-alpine
+    container_name: medicitas-db-security-test
+    environment:
+      TENANCY_DB_OWNER_PASSWORD: ${TENANCY_DB_OWNER_PASSWORD}
+      TENANCY_DB_APP_PASSWORD: ${TENANCY_DB_APP_PASSWORD}
+      TENANCY_DB_READONLY_PASSWORD: ${TENANCY_DB_READONLY_PASSWORD}
+
+      AGENDA_DB_OWNER_PASSWORD: ${AGENDA_DB_OWNER_PASSWORD}
+      AGENDA_DB_APP_PASSWORD: ${AGENDA_DB_APP_PASSWORD}
+      AGENDA_DB_READONLY_PASSWORD: ${AGENDA_DB_READONLY_PASSWORD}
+
+      EXPEDIENTE_DB_OWNER_PASSWORD: ${EXPEDIENTE_DB_OWNER_PASSWORD}
+      EXPEDIENTE_DB_APP_PASSWORD: ${EXPEDIENTE_DB_APP_PASSWORD}
+      EXPEDIENTE_DB_READONLY_PASSWORD: ${EXPEDIENTE_DB_READONLY_PASSWORD}
+
+      AUDIT_DB_OWNER_PASSWORD: ${AUDIT_DB_OWNER_PASSWORD}
+      AUDIT_DB_APP_PASSWORD: ${AUDIT_DB_APP_PASSWORD}
+      AUDIT_DB_READONLY_PASSWORD: ${AUDIT_DB_READONLY_PASSWORD}
+    volumes:
+      - ./deploy/postgres/test-privileges.sh:/test-privileges.sh:ro
+    entrypoint: ["sh", "/test-privileges.sh"]
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
   # Migrations run as each database's owner role.
   migrate-tenancy:
     image: migrate/migrate:v4.18.3
