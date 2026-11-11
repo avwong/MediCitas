@@ -225,6 +225,18 @@ services:
       db-init:
         condition: service_completed_successfully
 
+  migrate-expediente:
+    image: migrate/migrate:v4.18.3
+    container_name: medicitas-migrate-expediente
+    volumes:
+      - ./migrations/expediente:/migrations:ro
+    command:
+      - "-path=/migrations"
+      - "-database=postgres://expediente_owner:${EXPEDIENTE_DB_OWNER_PASSWORD}@postgres:5432/expediente_db?sslmode=disable"
+      - "up"
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
   db-seed:
     image: postgres:17-alpine
     container_name: medicitas-db-seed
@@ -244,6 +256,8 @@ services:
       migrate-tenancy:
         condition: service_completed_successfully
       migrate-agenda:
+        condition: service_completed_successfully
+      migrate-expediente:
         condition: service_completed_successfully
 
   redis:
