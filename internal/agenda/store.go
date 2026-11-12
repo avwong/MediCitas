@@ -50,9 +50,37 @@ func (s *PostgresStore) DeleteClinic(ctx context.Context, clinicID string) error
 	return nil
 }
 
-const serviceColumns = `
-	id::text, clinic_id::text, name, duration_minutes, specialty, active, created_at
+const serviceSelect = `
+	SELECT
+		s.id::text, s.clinic_id::text, s.name, s.duration_minutes,
+		s.specialty_id::text, sp.name, s.active, s.created_at
+	FROM services s
+	JOIN specialties sp
+		ON sp.clinic_id = s.clinic_id
+	   AND sp.id = s.specialty_id
 `
+
+// ensureSpecialty devuelve el id de la especialidad de la clínica con ese
+// nombre y la crea si no existe. El índice único sobre (clinic_id,
+// lower(name)) hace la búsqueda insensible a mayúsculas y segura ante
+// llamadas concurrentes; el UPDATE sin efecto solo logra que RETURNING
+// devuelva la fila.
+func ensureSpecialty(ctx context.Context, db database.DBTX, clinicID, name string) (string, error) {
+	var specialtyID string
+
+	err := db.QueryRow(ctx, `
+		INSERT INTO specialties (clinic_id, name)
+		VALUES ($1, $2)
+		ON CONFLICT (clinic_id, lower(name))
+		DO UPDATE SET name = specialties.name
+		RETURNING id::text
+	`, clinicID, name).Scan(&specialtyID)
+	if err != nil {
+		return "", database.MapError(err)
+	}
+
+	return specialtyID, nil
+}
 
 func scanService(row pgx.Row) (MedicalService, error) {
 	var service MedicalService
@@ -62,6 +90,7 @@ func scanService(row pgx.Row) (MedicalService, error) {
 		&service.ClinicID,
 		&service.Name,
 		&service.DurationMinutes,
+		&service.SpecialtyID,
 		&service.Specialty,
 		&service.Active,
 		&service.CreatedAt,
@@ -72,16 +101,38 @@ func scanService(row pgx.Row) (MedicalService, error) {
 
 // CreateService inserts a service in the clinic catalog.
 func (s *PostgresStore) CreateService(ctx context.Context, clinicID string, in NewMedicalService) (MedicalService, error) {
-	row := s.pool.QueryRow(ctx, `
-		INSERT INTO services (clinic_id, name, duration_minutes, specialty)
-		VALUES ($1, $2, $3, $4)
-		RETURNING `+serviceColumns,
-		clinicID, in.Name, in.DurationMinutes, in.Specialty,
-	)
+	var service MedicalService
 
-	service, err := scanService(row)
+	err := s.tx.Run(ctx, database.TxOptions{ClinicID: clinicID}, func(ctx context.Context, tx *database.Tx) error {
+		specialtyID, err := ensureSpecialty(ctx, tx, clinicID, in.Specialty)
+		if err != nil {
+			return err
+		}
+
+		var serviceID string
+
+		err = tx.QueryRow(ctx, `
+			INSERT INTO services (clinic_id, name, duration_minutes, specialty_id)
+			VALUES ($1, $2, $3, $4)
+			RETURNING id::text
+		`, clinicID, in.Name, in.DurationMinutes, specialtyID).Scan(&serviceID)
+		if err != nil {
+			return database.MapError(err)
+		}
+
+		row := tx.QueryRow(ctx, serviceSelect+`
+			WHERE s.clinic_id = $1 AND s.id = $2
+		`, clinicID, serviceID)
+
+		service, err = scanService(row)
+		if err != nil {
+			return database.MapError(err)
+		}
+
+		return nil
+	})
 	if err != nil {
-		return MedicalService{}, database.MapError(err)
+		return MedicalService{}, err
 	}
 
 	return service, nil
@@ -89,11 +140,9 @@ func (s *PostgresStore) CreateService(ctx context.Context, clinicID string, in N
 
 // ListServices returns the clinic catalog ordered by name.
 func (s *PostgresStore) ListServices(ctx context.Context, clinicID string) ([]MedicalService, error) {
-	rows, err := s.pool.Query(ctx, `
-		SELECT `+serviceColumns+`
-		FROM services
-		WHERE clinic_id = $1
-		ORDER BY name
+	rows, err := s.pool.Query(ctx, serviceSelect+`
+		WHERE s.clinic_id = $1
+		ORDER BY s.name
 	`, clinicID)
 	if err != nil {
 		return nil, database.MapError(err)
@@ -119,10 +168,8 @@ func (s *PostgresStore) ListServices(ctx context.Context, clinicID string) ([]Me
 
 // GetService returns one service of the clinic.
 func (s *PostgresStore) GetService(ctx context.Context, clinicID, serviceID string) (MedicalService, error) {
-	row := s.pool.QueryRow(ctx, `
-		SELECT `+serviceColumns+`
-		FROM services
-		WHERE clinic_id = $1 AND id = $2
+	row := s.pool.QueryRow(ctx, serviceSelect+`
+		WHERE s.clinic_id = $1 AND s.id = $2
 	`, clinicID, serviceID)
 
 	service, err := scanService(row)
@@ -162,18 +209,23 @@ func (s *PostgresStore) CreatePractitioner(
 	var practitioner Practitioner
 
 	err := s.tx.Run(ctx, database.TxOptions{ClinicID: clinicID}, func(ctx context.Context, tx *database.Tx) error {
+		specialtyID, err := ensureSpecialty(ctx, tx, clinicID, in.Specialty)
+		if err != nil {
+			return err
+		}
+
 		var practitionerID string
 
-		err := tx.QueryRow(ctx, `
-			INSERT INTO practitioners (clinic_id, user_id, user_subject, display_name, specialty)
+		err = tx.QueryRow(ctx, `
+			INSERT INTO practitioners (clinic_id, user_id, user_subject, display_name, specialty_id)
 			VALUES ($1, $2, $3, $4, $5)
 			RETURNING id::text
-		`, clinicID, in.UserID, in.UserSubject, in.DisplayName, in.Specialty).Scan(&practitionerID)
+		`, clinicID, in.UserID, in.UserSubject, in.DisplayName, specialtyID).Scan(&practitionerID)
 		if err != nil {
 			return database.MapError(err)
 		}
 
-		if err := insertPractitionerServices(ctx, tx, clinicID, practitionerID, in.Specialty, serviceIDs); err != nil {
+		if err := insertPractitionerServices(ctx, tx, clinicID, practitionerID, specialtyID, serviceIDs); err != nil {
 			return err
 		}
 
@@ -199,14 +251,14 @@ func (s *PostgresStore) ReplacePractitionerServices(
 	var practitioner Practitioner
 
 	err := s.tx.Run(ctx, database.TxOptions{ClinicID: clinicID}, func(ctx context.Context, tx *database.Tx) error {
-		var specialty string
+		var specialtyID string
 
 		err := tx.QueryRow(ctx, `
-			SELECT specialty
+			SELECT specialty_id::text
 			FROM practitioners
 			WHERE clinic_id = $1 AND id = $2
 			FOR UPDATE
-		`, clinicID, practitionerID).Scan(&specialty)
+		`, clinicID, practitionerID).Scan(&specialtyID)
 		if err != nil {
 			return database.MapError(err)
 		}
@@ -219,7 +271,7 @@ func (s *PostgresStore) ReplacePractitionerServices(
 			return database.MapError(err)
 		}
 
-		if err := insertPractitionerServices(ctx, tx, clinicID, practitionerID, specialty, serviceIDs); err != nil {
+		if err := insertPractitionerServices(ctx, tx, clinicID, practitionerID, specialtyID, serviceIDs); err != nil {
 			return err
 		}
 
@@ -233,16 +285,16 @@ func (s *PostgresStore) ReplacePractitionerServices(
 	return practitioner, nil
 }
 
-// insertPractitionerServices associates services in a single statement. Only
-// services of the same clinic, active and requiring the practitioner's
-// specialty are inserted; if any requested service is missing from that set
-// the whole operation fails.
+// insertPractitionerServices asocia servicios en una sola sentencia. Solo se
+// insertan los servicios de la misma clínica, activos y que requieran la
+// especialidad del profesional (comparada por id); si falta alguno de los
+// servicios pedidos en ese conjunto, toda la operación falla.
 func insertPractitionerServices(
 	ctx context.Context,
 	db database.DBTX,
 	clinicID string,
 	practitionerID string,
-	specialty string,
+	specialtyID string,
 	serviceIDs []string,
 ) error {
 	if len(serviceIDs) == 0 {
@@ -256,8 +308,8 @@ func insertPractitionerServices(
 		WHERE s.clinic_id = $1
 		  AND s.id = ANY ($3::text[]::uuid[])
 		  AND s.active
-		  AND s.specialty = $4
-	`, clinicID, practitionerID, serviceIDs, specialty)
+		  AND s.specialty_id = $4::uuid
+	`, clinicID, practitionerID, serviceIDs, specialtyID)
 	if err != nil {
 		return database.MapError(err)
 	}
@@ -278,7 +330,8 @@ const practitionerQuery = `
 		p.user_id::text,
 		p.user_subject,
 		p.display_name,
-		p.specialty,
+		p.specialty_id::text,
+		sp.name,
 		p.active,
 		p.created_at,
 		COALESCE(
@@ -287,6 +340,9 @@ const practitionerQuery = `
 			'{}'
 		)
 	FROM practitioners p
+	JOIN specialties sp
+		ON sp.clinic_id = p.clinic_id
+	   AND sp.id = p.specialty_id
 	LEFT JOIN practitioner_services ps
 		ON ps.clinic_id = p.clinic_id
 	   AND ps.practitioner_id = p.id
@@ -302,6 +358,7 @@ func scanPractitioner(row pgx.Row) (Practitioner, error) {
 		&practitioner.UserID,
 		&practitioner.UserSubject,
 		&practitioner.DisplayName,
+		&practitioner.SpecialtyID,
 		&practitioner.Specialty,
 		&practitioner.Active,
 		&practitioner.CreatedAt,
@@ -318,7 +375,7 @@ func scanPractitioner(row pgx.Row) (Practitioner, error) {
 func getPractitioner(ctx context.Context, db database.DBTX, clinicID, practitionerID string) (Practitioner, error) {
 	row := db.QueryRow(ctx, practitionerQuery+`
 		AND p.id = $2
-		GROUP BY p.id
+		GROUP BY p.id, sp.id
 	`, clinicID, practitionerID)
 
 	practitioner, err := scanPractitioner(row)
@@ -338,7 +395,7 @@ func (s *PostgresStore) GetPractitioner(ctx context.Context, clinicID, practitio
 // services, ordered by name.
 func (s *PostgresStore) ListPractitioners(ctx context.Context, clinicID string) ([]Practitioner, error) {
 	rows, err := s.pool.Query(ctx, practitionerQuery+`
-		GROUP BY p.id
+		GROUP BY p.id, sp.id
 		ORDER BY p.display_name
 	`, clinicID)
 	if err != nil {

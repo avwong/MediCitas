@@ -14,6 +14,7 @@ type MedicalService struct {
 	ClinicID        string    `json:"clinic_id"`
 	Name            string    `json:"name"`
 	DurationMinutes int       `json:"duration_minutes"`
+	SpecialtyID     string    `json:"specialty_id"`
 	Specialty       string    `json:"specialty"`
 	Active          bool      `json:"active"`
 	CreatedAt       time.Time `json:"created_at"`
@@ -32,6 +33,7 @@ type Practitioner struct {
 	// recognize a practitioner from their token ("only their own").
 	UserSubject string    `json:"keycloak_subject"`
 	DisplayName string    `json:"display_name"`
+	SpecialtyID string    `json:"specialty_id"`
 	Specialty   string    `json:"specialty"`
 	Active      bool      `json:"active"`
 	ServiceIDs  []string  `json:"service_ids"`
