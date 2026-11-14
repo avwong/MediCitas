@@ -91,7 +91,7 @@ Todas las rutas reciben y devuelven JSON. Los errores tienen la forma `{"error":
 
 ### Agenda
 
-Actualmente están implementados RF3 y RF4:
+Actualmente están implementados RF3, RF4 y RF14. Catálogo y profesionales (RF3 y RF4):
 
 | Método y ruta | Rol | Entrada | Salida | Códigos |
 |---|---|---|---|---|
@@ -106,7 +106,30 @@ Actualmente están implementados RF3 y RF4:
 
 Un profesional solo puede atender servicios activos de su clínica que requieran su especialidad; si algún servicio no cumple, la operación completa se rechaza.
 
-RF5–RF14, RF16, RF20 y RF21 pertenecen a Agenda y se incorporarán sobre esta misma frontera de servicio.
+La especialidad (`specialty`) se recibe como texto y se guarda en la tabla `specialties` de la clínica, sin distinguir mayúsculas: "Medicina general" y "medicina general" son la misma. Las respuestas incluyen `specialty` y `specialty_id`.
+
+Pacientes (RF14):
+
+| Método y ruta | Rol | Entrada | Salida | Códigos |
+|---|---|---|---|---|
+| `POST /api/v1/patients` | `clinic_admin`, `reception` | `identification`, `first_name`, `last_name`, `birth_date` (`AAAA-MM-DD`); opcionales `phone`, `email`, `address` | paciente | 201, 400, 409 |
+| `PATCH /api/v1/patients/{id}` | `clinic_admin`, `reception` | cualquiera de los campos anteriores | paciente | 200, 400, 404, 409 |
+| `GET /api/v1/patients` | personal de la clínica | `q` (búsqueda por prefijo) y `limit` (1–200, por defecto 50), opcionales | `{items: [resumen]}` | 200, 400 |
+| `GET /api/v1/patients/{id}` | personal de la clínica | — | paciente | 200, 400, 404 |
+
+Reglas de los pacientes:
+
+- Recepción y administración escriben; el profesional solo lee (matriz de permisos).
+- En `PATCH`, un campo ausente no se modifica y un dato de contacto enviado vacío se borra. Un cuerpo sin ningún campo responde 400.
+- La identificación es única dentro de la clínica (409 si se repite) y puede repetirse entre clínicas.
+- `birth_date` no puede ser futura ni anterior a 1900-01-01. `phone` admite dígitos, espacios, `+`, `-` y paréntesis. `email` debe ser una dirección válida.
+- La clínica nunca viaja en la petición: se toma del `clinic_id` firmado. Un paciente de otra clínica responde 404.
+- El listado devuelve un resumen **sin datos de contacto** (`id`, `identification`, `first_name`, `last_name`, `birth_date`, `active`), por lo que no se audita.
+- Cada creación, actualización y lectura de un paciente con sus datos de contacto escribe `patient_contact.write` o `patient_contact.read` en `audit_outbox`, dentro de la misma transacción. Si el evento no se puede guardar, la operación no se completa. El evento lleva solo identificadores, nunca los valores de contacto.
+
+La semilla incluye 9 pacientes de ejemplo: 6 en Clínica Demo y 3 en Clínica Norte.
+
+RF5–RF13, RF16, RF20 y RF21 pertenecen a Agenda y se incorporarán sobre esta misma frontera de servicio.
 
 ### Expediente
 
@@ -240,7 +263,15 @@ También existe `scripts/verify-p1.sh` para entornos Unix. El detalle de lo que
 demuestra cada prueba y la frontera de entrega para P2/P3 está documentado en
 [`docs/p1-verification.md`](docs/p1-verification.md).
 
-Las pruebas unitarias cubren actualmente autenticación/autorización, mapeo de errores, saga de clínicas, catálogo, outbox, Auditoría y el núcleo de Expediente RF15.
+Las pruebas unitarias cubren actualmente autenticación/autorización, mapeo de errores, saga de clínicas, catálogo, pacientes (RF14), outbox, Auditoría y el núcleo de Expediente RF15.
+
+Las pruebas de pacientes (`internal/agenda/patients_test.go`) usan un almacén, una transacción y una auditoría falsos, y cada una indica en un comentario `Cubre` el requisito o invariante que sostiene (RF14, RF18, I5). Verifican, entre otras cosas:
+
+- que una entrada inválida se rechace antes de abrir la transacción;
+- que crear, actualizar y leer escriban el evento de auditoría correspondiente;
+- que la operación falle, y no devuelva el contacto, si el evento de auditoría no se puede guardar;
+- que el listado no audite;
+- que todas las operaciones usen la clínica del actor y que ninguna entrada tenga un campo de clínica.
 
 Las pruebas RF15 verifican, entre otras cosas:
 
@@ -261,7 +292,7 @@ Las pruebas completas de carrera, caché y fuga de datos de los requisitos de Ag
 cmd/<servicio>/          binario de cada servicio
 internal/platform/       auth, DB/TxManager, HTTP, outbox, clientes internos
 internal/tenancy/        RF1 y RF2
-internal/agenda/         catálogo y futuros módulos de Agenda
+internal/agenda/         catálogo, pacientes y futuros módulos de Agenda
 internal/expediente/     RF15
 internal/audit/          RF19 y almacén RF18
 migrations/<servicio>/   migraciones por base de datos
@@ -275,9 +306,9 @@ docs/                    arquitectura y contratos entre servicios
 
 | Implementado | Pendiente / integración futura |
 |---|---|
-| RF1, RF2, RF3, RF4, RF17 y RF19 | RF5–RF14, RF16, RF20 y RF21 |
+| RF1, RF2, RF3, RF4, RF14, RF17 y RF19 | RF5–RF13, RF16, RF20 y RF21 |
 | Núcleo RF15: BD, autorización, API, aislamiento lógico, auditoría read/write y contrato hacia Agenda | Endpoint de contexto de cita en Agenda para completar RF15 end-to-end |
-| Infraestructura RF18: outbox transaccional, relay, bitácora central idempotente e inmutable | Productor RF18 de contacto de pacientes cuando RF14 sea implementado |
+| Infraestructura RF18: outbox transaccional, relay, bitácora central idempotente e inmutable, y productor de contacto de pacientes en Agenda | Pruebas de integración automatizadas del productor de contacto de pacientes |
 | Bases por servicio, owner/app/readonly y aislamiento de credenciales | RLS y roles de dominio alineados con la matriz, según el módulo del equipo |
 | JWT/OIDC, permisos, signed `clinic_id`, saga RF1 y clientes service-to-service | Disponibilidad, concurrencia de citas, caché Redis y pruebas de carrera |
 | Tests reales de privilegios, invariantes de auditoría, JWT/proxy, aislamiento multi-tenant y entrega de relays | Suite de integración de los RF restantes de Agenda |
