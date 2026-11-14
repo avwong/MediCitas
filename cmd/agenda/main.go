@@ -55,7 +55,18 @@ func run(ctx context.Context) error {
 	)
 	handler := agenda.NewHandler(catalog, app.Logger)
 
+	// Pacientes (RF14)
+	// El Writer deja los eventos de auditoría de contacto en el outbox de Agenda (RF18)
+	// Escribe en la misma transacción que la operación sobre el paciente
+	patients := agenda.NewPatients(
+		agenda.NewPostgresPatientStore(),
+		app.Tx,
+		outbox.NewWriter("agenda"),
+	)
+	patientHandler := agenda.NewPatientHandler(patients, app.Logger)
+
 	handler.RegisterRoutes(app.API)
+	patientHandler.RegisterRoutes(app.API)
 	handler.RegisterInternalRoutes(
 		app.Router.Group(
 			"/internal",

@@ -1,16 +1,15 @@
--- Agenda: normaliza las especialidades en su propia tabla.
+-- Agenda: normaliza las especialidades en su propia tabla
 --
--- Antes de esta migración "specialty" era texto libre repetido en services y
--- practitioners, así que un mismo hecho (el nombre de una especialidad) se
--- guardaba una vez por fila y podía desincronizarse ("Medicina general" vs
--- "medicina general"). Moverlo a su propia tabla elimina esa dependencia
--- transitiva (3FN): el nombre depende de la especialidad, no del servicio ni
--- del profesional.
+-- Antes, specialty era texto libre repetido en services y practitioners
+-- El nombre de la especialidad se guardaba una vez por fila
+-- Podía desincronizarse ("Medicina general" vs "medicina general")
+-- Moverlo a su propia tabla elimina esa dependencia transitiva (3FN)
+-- Ahora el nombre depende de la especialidad, no del servicio ni del profesional
 --
--- El catálogo es por clínica. Como el resto de las tablas, lleva clinic_id y
--- se referencia mediante una llave foránea compuesta (clinic_id, id), de modo
--- que la base de datos rechaza un servicio o profesional que apunte a una
--- especialidad de otra clínica (I5).
+-- El catálogo es por clínica
+-- Lleva clinic_id, como el resto de las tablas
+-- Se referencia con una llave foránea compuesta (clinic_id, id)
+-- Así la base rechaza un servicio o profesional con una especialidad de otra clínica (I5)
 
 CREATE TABLE specialties (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -21,13 +20,14 @@ CREATE TABLE specialties (
     CONSTRAINT specialties_clinic_id_unique UNIQUE (clinic_id, id)
 );
 
--- Una clínica no puede tener la misma especialidad dos veces, sin importar
--- las mayúsculas.
+-- Una clínica no puede tener la misma especialidad dos veces
+-- La comparación no distingue mayúsculas
 CREATE UNIQUE INDEX specialties_clinic_name_unique
     ON specialties (clinic_id, lower(name));
 
--- Migración de datos: una especialidad por cada (clínica, nombre) distinto en
--- uso, unificando las grafías que solo difieren en mayúsculas.
+-- Migración de datos existentes
+-- Crea una especialidad por cada (clínica, nombre) distinto en uso
+-- Unifica las grafías que solo difieren en mayúsculas
 INSERT INTO specialties (clinic_id, name)
 SELECT DISTINCT ON (clinic_id, lower(name)) clinic_id, name
 FROM (
@@ -71,8 +71,9 @@ ALTER TABLE practitioners
         ON DELETE RESTRICT,
     DROP COLUMN specialty;
 
--- Sirven para "servicios / profesionales de una especialidad" y para
--- comprobar que un servicio requiere la especialidad del profesional (RF4).
+-- Índices por especialidad
+-- Sirven para buscar los servicios o profesionales de una especialidad
+-- Sirven para comprobar que un servicio requiere la especialidad del profesional (RF4)
 CREATE INDEX idx_services_specialty
     ON services (clinic_id, specialty_id);
 

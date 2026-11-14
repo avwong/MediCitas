@@ -1,5 +1,5 @@
--- Restaura las columnas de texto libre "specialty" a partir de la tabla
--- specialties.
+-- Restaura las columnas de texto libre specialty
+-- Copia el nombre desde la tabla specialties antes de eliminarla
 
 ALTER TABLE services ADD COLUMN specialty VARCHAR(120);
 
