@@ -61,7 +61,9 @@ func (c *Catalog) ProvisionClinic(ctx context.Context, clinicID, timezone string
 	}
 
 	timezone = strings.TrimSpace(timezone)
-	if _, err := time.LoadLocation(timezone); err != nil || timezone == "" {
+	// LoadLocation acepta "" (UTC) y "Local" (la zona del servidor); ninguna
+	// de las dos es una zona IANA válida para una clínica.
+	if _, err := time.LoadLocation(timezone); err != nil || timezone == "" || timezone == "Local" {
 		return apperr.Invalid("invalid time zone")
 	}
 

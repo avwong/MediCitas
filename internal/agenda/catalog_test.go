@@ -176,7 +176,9 @@ func TestMalformedIDsAreRejectedBeforeTheStore(t *testing.T) {
 		t.Errorf("GetPractitioner: error = %v, want invalid input", err)
 	}
 
-	if err := catalog.ProvisionClinic(context.Background(), clinicA, "Mars/Olympus"); !errors.Is(err, apperr.ErrInvalidInput) {
-		t.Errorf("ProvisionClinic: error = %v, want invalid input for an unknown time zone", err)
+	for _, timezone := range []string{"Mars/Olympus", "", "Local"} {
+		if err := catalog.ProvisionClinic(context.Background(), clinicA, timezone); !errors.Is(err, apperr.ErrInvalidInput) {
+			t.Errorf("ProvisionClinic(%q): error = %v, want invalid input", timezone, err)
+		}
 	}
 }
