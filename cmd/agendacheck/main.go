@@ -1,7 +1,7 @@
 // Command agendacheck ejecuta las pruebas de integración de Agenda contra la
 // pila real de Compose. Hoy cubre RF14 (pacientes), RF18 (auditoría de
-// contacto), RF20 (agenda del día), RF21 (conteo de citas por estado) e I5
-// (aislamiento entre clínicas). Cada prueba lleva en su nombre el requisito o
+// contacto), RF16 (historial del paciente), RF20 (agenda del día), RF21
+// (conteo de citas por estado) e I5 (aislamiento entre clínicas). Cada prueba lleva en su nombre el requisito o
 // invariante que sostiene, para la trazabilidad.
 package main
 
@@ -386,6 +386,14 @@ func (s *suite) run(ctx context.Context) int {
 		{"RF14 búsqueda por prefijo, límite y comodines literales", s.searchAndLimit},
 		{"RF18 cada acceso al contacto queda en la bitácora, y solo esos", s.auditTrailIsExact},
 		{"I5 la bitácora de otra clínica no muestra esos eventos", s.otherClinicCannotSeeAudit},
+		{"RF16 el historial trae las citas del paciente, de la más reciente a la más antigua", s.historyOfAPatient},
+		{"RF16 el historial muestra el motivo de cancelación y la reprogramación", s.historyShowsCancellationAndReschedule},
+		{"RF16 un paciente sin citas tiene un historial vacío (200)", s.historyOfAPatientWithoutAppointments},
+		{"RF16 el historial admite un límite", s.historyLimit},
+		{"RF16 el historial lo leen los tres roles de la clínica (el profesional también)", s.historyPermissions},
+		{"RF16 las entradas inválidas se rechazan (400) y un paciente inexistente es 404", s.historyInvalidInputs},
+		{"RF16 el historial muestra las horas en la zona horaria de la clínica", s.historyTimezone},
+		{"I5 el historial no cruza clínicas", s.historyDoesNotCrossClinics},
 		{"RF20 recepción ve la agenda de toda la clínica, sin contacto de pacientes", s.agendaClinicWide},
 		{"RF20 la agenda de un profesional solo trae sus citas", s.agendaOfPractitioner},
 		{"RF20 la agenda se filtra por estado", s.agendaStatusFilter},

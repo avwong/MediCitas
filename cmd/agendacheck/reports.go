@@ -519,3 +519,309 @@ func (s *suite) countsIgnoreForgedClinic(ctx context.Context) error {
 
 	return nil
 }
+
+// Prefijos de los pacientes de la semilla
+const (
+	demoPatientPrefix  = "b1b1b1b1"
+	northPatientPrefix = "b2b2b2b2"
+	southPatientPrefix = "b3b3b3b3"
+)
+
+// seedPatientID arma el identificador de un paciente de la semilla
+// Tiene el mismo formato que el de las citas
+func seedPatientID(prefix string, number int) string {
+	return appointmentID(prefix, number)
+}
+
+// historyItem es una cita en la respuesta del historial
+type historyItem struct {
+	ID                 string `json:"id"`
+	StartsAt           string `json:"starts_at"`
+	Status             string `json:"status"`
+	CancellationReason string `json:"cancellation_reason"`
+	RescheduledFromID  string `json:"rescheduled_from_id"`
+}
+
+type historyResponse struct {
+	Patient  map[string]any `json:"patient"`
+	Timezone string         `json:"timezone"`
+	Items    []historyItem  `json:"items"`
+}
+
+// getHistory pide el historial y espera un 200
+func (s *suite) getHistory(ctx context.Context, token, patientID, query string) (historyResponse, error) {
+	var history historyResponse
+
+	path := "/api/v1/patients/" + patientID + "/history"
+	if query != "" {
+		path += "?" + query
+	}
+
+	raw, err := s.expect(ctx, http.MethodGet, path, token, "", http.StatusOK)
+	if err != nil {
+		return history, err
+	}
+
+	if err := json.Unmarshal(raw, &history); err != nil {
+		return history, fmt.Errorf("respuesta del historial: %w", err)
+	}
+
+	return history, nil
+}
+
+func (h historyResponse) ids() []string {
+	ids := make([]string, 0, len(h.Items))
+	for _, item := range h.Items {
+		ids = append(ids, item.ID)
+	}
+
+	return ids
+}
+
+// position devuelve el lugar de una cita en el historial, o -1 si no está
+func (h historyResponse) position(id string) int {
+	for i, item := range h.Items {
+		if item.ID == id {
+			return i
+		}
+	}
+
+	return -1
+}
+
+// item devuelve la cita con ese id
+func (h historyResponse) item(id string) (historyItem, bool) {
+	for _, item := range h.Items {
+		if item.ID == id {
+			return item, true
+		}
+	}
+
+	return historyItem{}, false
+}
+
+func (s *suite) historyOfAPatient(ctx context.Context) error {
+	// Valeria, de la Clínica Demo, tiene cuatro citas en la semilla
+	// La 16 reprograma a la 7, y la 3 ya fue atendida
+	history, err := s.getHistory(ctx, s.reception, seedPatientID(demoPatientPrefix, 5), "")
+	if err != nil {
+		return err
+	}
+
+	if history.Patient["identification"] != "1-1456-0321" || history.Patient["first_name"] != "Valeria" {
+		return fmt.Errorf("paciente = %v, want Valeria", history.Patient)
+	}
+
+	// El historial no trae contacto del paciente
+	for _, field := range []string{"phone", "email", "address"} {
+		if _, found := history.Patient[field]; found {
+			return fmt.Errorf("el historial expone el campo de contacto %q", field)
+		}
+	}
+
+	want := []string{
+		appointmentID(demoPrefix, 16), appointmentID(demoPrefix, 11),
+		appointmentID(demoPrefix, 7), appointmentID(demoPrefix, 3),
+	}
+
+	if err := mustContain(history.ids(), want...); err != nil {
+		return err
+	}
+
+	// De la más reciente a la más antigua
+	for i := 1; i < len(want); i++ {
+		if history.position(want[i-1]) > history.position(want[i]) {
+			return fmt.Errorf("el historial no está de la más reciente a la más antigua: %v", history.ids())
+		}
+	}
+
+	for i := 1; i < len(history.Items); i++ {
+		if history.Items[i].StartsAt > history.Items[i-1].StartsAt {
+			return fmt.Errorf("%s va antes que %s", history.Items[i-1].StartsAt, history.Items[i].StartsAt)
+		}
+	}
+
+	statuses := map[string]string{want[0]: "booked", want[1]: "booked", want[2]: "rescheduled", want[3]: "attended"}
+	for id, status := range statuses {
+		item, _ := history.item(id)
+		if item.Status != status {
+			return fmt.Errorf("la cita %s tiene estado %q, want %q", id, item.Status, status)
+		}
+	}
+
+	return nil
+}
+
+func (s *suite) historyShowsCancellationAndReschedule(ctx context.Context) error {
+	// Carlos tiene una cita cancelada (la 4) y una reservada (la 13)
+	carlos, err := s.getHistory(ctx, s.reception, seedPatientID(demoPatientPrefix, 2), "")
+	if err != nil {
+		return err
+	}
+
+	cancelled, found := carlos.item(appointmentID(demoPrefix, 4))
+	if !found || cancelled.Status != "cancelled" || cancelled.CancellationReason == "" {
+		return fmt.Errorf("la cita cancelada debe traer su motivo: %+v", cancelled)
+	}
+
+	booked, found := carlos.item(appointmentID(demoPrefix, 13))
+	if !found || booked.Status != "booked" || booked.CancellationReason != "" {
+		return fmt.Errorf("una cita reservada no lleva motivo de cancelación: %+v", booked)
+	}
+
+	// La cita 16 de Valeria reprograma a la 7
+	valeria, err := s.getHistory(ctx, s.reception, seedPatientID(demoPatientPrefix, 5), "")
+	if err != nil {
+		return err
+	}
+
+	replacement, found := valeria.item(appointmentID(demoPrefix, 16))
+	if !found || replacement.RescheduledFromID != appointmentID(demoPrefix, 7) {
+		return fmt.Errorf("la cita 16 debe apuntar a la 7 como original: %+v", replacement)
+	}
+
+	return nil
+}
+
+func (s *suite) historyOfAPatientWithoutAppointments(ctx context.Context) error {
+	if err := need(s.demoPatientID, "el paciente de Demo"); err != nil {
+		return err
+	}
+
+	// El paciente que crearon las pruebas de RF14 no tiene citas
+	history, err := s.getHistory(ctx, s.reception, s.demoPatientID, "")
+	if err != nil {
+		return err
+	}
+
+	if history.Items == nil || len(history.Items) != 0 {
+		return fmt.Errorf("items = %v, want una lista vacía", history.Items)
+	}
+
+	return nil
+}
+
+func (s *suite) historyLimit(ctx context.Context) error {
+	// Jorge tiene cinco citas en la semilla
+	patientID := seedPatientID(demoPatientPrefix, 4)
+
+	all, err := s.getHistory(ctx, s.reception, patientID, "")
+	if err != nil {
+		return err
+	}
+
+	if len(all.Items) < 5 {
+		return fmt.Errorf("el historial de Jorge trae %d citas, want al menos 5", len(all.Items))
+	}
+
+	limited, err := s.getHistory(ctx, s.reception, patientID, "limit=2")
+	if err != nil {
+		return err
+	}
+
+	if len(limited.Items) != 2 || limited.Items[0].ID != all.Items[0].ID || limited.Items[1].ID != all.Items[1].ID {
+		return fmt.Errorf("limit=2 debe devolver las dos citas más recientes: %v", limited.ids())
+	}
+
+	return nil
+}
+
+func (s *suite) historyPermissions(ctx context.Context) error {
+	path := "/api/v1/patients/" + seedPatientID(demoPatientPrefix, 1) + "/history"
+
+	// La matriz da el historial a administración, recepción y profesionales
+	for _, token := range []string{s.admin, s.reception, s.practitioner, s.practitioner2} {
+		if _, err := s.expect(ctx, http.MethodGet, path, token, "", http.StatusOK); err != nil {
+			return err
+		}
+	}
+
+	if _, err := s.expect(ctx, http.MethodGet, path, "", "", http.StatusUnauthorized); err != nil {
+		return err
+	}
+
+	_, err := s.expect(ctx, http.MethodGet, path, s.platformAdmin, "", http.StatusForbidden)
+
+	return err
+}
+
+func (s *suite) historyInvalidInputs(ctx context.Context) error {
+	valid := seedPatientID(demoPatientPrefix, 1)
+
+	invalid := []string{
+		"/api/v1/patients/no-es-un-uuid/history",
+		"/api/v1/patients/" + valid + "/history?limit=abc",
+		"/api/v1/patients/" + valid + "/history?limit=-1",
+	}
+
+	for _, path := range invalid {
+		if _, err := s.expect(ctx, http.MethodGet, path, s.reception, "", http.StatusBadRequest); err != nil {
+			return err
+		}
+	}
+
+	_, err := s.expect(ctx, http.MethodGet, "/api/v1/patients/"+unknownPatientID+"/history", s.reception, "", http.StatusNotFound)
+
+	return err
+}
+
+func (s *suite) historyTimezone(ctx context.Context) error {
+	// La cita 1 de Sebastián, en la Clínica Sur, fue el 9 de noviembre a las 08:00 de Bogotá
+	history, err := s.getHistory(ctx, s.southReception, seedPatientID(southPatientPrefix, 1), "")
+	if err != nil {
+		return err
+	}
+
+	if history.Timezone != "America/Bogota" {
+		return fmt.Errorf("timezone = %q, want America/Bogota", history.Timezone)
+	}
+
+	first, found := history.item(appointmentID(southPrefix, 1))
+	if !found || first.StartsAt != "2026-11-09T08:00:00-05:00" || first.Status != "attended" {
+		return fmt.Errorf("la cita 1 debe ser del 9 de noviembre a las 08:00 de Bogotá, atendida: %+v", first)
+	}
+
+	return nil
+}
+
+func (s *suite) historyDoesNotCrossClinics(ctx context.Context) error {
+	demoPatient := seedPatientID(demoPatientPrefix, 1)
+	northPatient := seedPatientID(northPatientPrefix, 1)
+
+	// Otra clínica no ve al paciente de Demo
+	for _, token := range []string{s.northReception, s.northAdmin, s.southReception} {
+		if _, err := s.expect(ctx, http.MethodGet, "/api/v1/patients/"+demoPatient+"/history", token, "", http.StatusNotFound); err != nil {
+			return err
+		}
+	}
+
+	// Demo tampoco ve al paciente de Norte
+	if _, err := s.expect(ctx, http.MethodGet, "/api/v1/patients/"+northPatient+"/history", s.reception, "", http.StatusNotFound); err != nil {
+		return err
+	}
+
+	// Un clinic_id en los parámetros no cambia nada
+	forged := "/api/v1/patients/" + northPatient + "/history?clinic_id=" + northClinicID
+	if _, err := s.expect(ctx, http.MethodGet, forged, s.reception, "", http.StatusNotFound); err != nil {
+		return err
+	}
+
+	// El historial de Norte solo trae citas de Norte
+	// El paciente 1 de Norte tiene la misma identificación que el de Demo
+	history, err := s.getHistory(ctx, s.northReception, northPatient, "")
+	if err != nil {
+		return err
+	}
+
+	if err := mustContain(history.ids(), appointmentID(northPrefix, 7)); err != nil {
+		return err
+	}
+
+	for _, id := range history.ids() {
+		if !strings.HasPrefix(id, northPrefix) {
+			return fmt.Errorf("el historial de Norte trae la cita %s de otra clínica", id)
+		}
+	}
+
+	return nil
+}

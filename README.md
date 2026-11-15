@@ -103,7 +103,7 @@ Todas las rutas reciben y devuelven JSON. Los errores tienen la forma `{"error":
 
 ### Agenda
 
-Actualmente están implementados RF3, RF4, RF14, RF20 y RF21. Catálogo y profesionales (RF3 y RF4):
+Actualmente están implementados RF3, RF4, RF14, RF16, RF20 y RF21. Catálogo y profesionales (RF3 y RF4):
 
 | Método y ruta | Rol | Entrada | Salida | Códigos |
 |---|---|---|---|---|
@@ -141,12 +141,20 @@ Reglas de los pacientes:
 
 La semilla incluye 13 pacientes de ejemplo: 6 en Clínica Demo, 3 en Clínica Norte y 4 en Clínica Sur.
 
-Agenda del día (RF20) y conteo de citas por estado (RF21):
+Historial del paciente (RF16), agenda del día (RF20) y conteo de citas por estado (RF21):
 
 | Método y ruta | Rol | Entrada | Salida | Códigos |
 |---|---|---|---|---|
+| `GET /api/v1/patients/{id}/history` | `clinic_admin`, `reception`, `practitioner` | `limit` (1–200, por defecto 50), opcional | `{patient, timezone, items: [cita]}` | 200, 400, 404 |
 | `GET /api/v1/agenda` | `clinic_admin`, `reception`, `practitioner` | `date` (`AAAA-MM-DD`, obligatorio); opcionales `practitioner_id` y `status` | `{date, timezone, practitioner_id, items: [cita]}` | 200, 400, 403, 404 |
 | `GET /api/v1/reports/appointments-by-status` | `clinic_admin` | `from` y `to` (`AAAA-MM-DD`, obligatorios) | `{from, to, timezone, counts, total}` | 200, 400 |
+
+Reglas del historial:
+
+- Devuelve las citas del paciente de la más reciente a la más antigua, con el estado de cada una. Las canceladas traen `cancellation_reason`, y la que reprograma a otra trae `rescheduled_from_id`.
+- Lo leen los tres roles de la clínica, según la matriz del enunciado. El profesional no queda limitado a sus pacientes, porque ya puede leer todos (RF14).
+- El paciente va **sin datos de contacto** (`id`, `identification`, `first_name`, `last_name`), por lo que consultar el historial no se audita.
+- Las horas salen en la zona horaria de la clínica. Un paciente de otra clínica, o que no existe, responde 404. Un paciente sin citas devuelve `items` vacío.
 
 Reglas de la agenda y el conteo:
 
@@ -159,7 +167,7 @@ Reglas de la agenda y el conteo:
 - El conteo es de administración: no está en la matriz del enunciado, y se limitó a quien gestiona la clínica. La agenda tampoco está en la matriz y se concedió a los tres roles de clínica.
 - La clínica nunca viaja en la petición: se toma del `clinic_id` firmado, y un `clinic_id` enviado en los parámetros se ignora.
 
-RF5–RF13 y RF16 pertenecen a Agenda y se incorporarán sobre esta misma frontera de servicio.
+RF5–RF13 pertenecen a Agenda y se incorporarán sobre esta misma frontera de servicio.
 
 ### Expediente
 
