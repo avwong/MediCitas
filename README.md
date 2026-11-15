@@ -356,7 +356,11 @@ docs/                    diseño, concurrencia y caché, y pruebas
 | RF1 a RF17, RF19, RF20 y RF21 | — |
 | RF15 de punta a punta: BD, autorización, API, aislamiento lógico, auditoría de lectura y escritura y verificación de la cita en Agenda | — |
 | Infraestructura RF18: outbox transaccional, relay, bitácora central idempotente e inmutable, y productor de contacto de pacientes en Agenda, con pruebas de integración | — |
-| Bases por servicio, owner/app/readonly y aislamiento de credenciales, y Row-Level Security en `agenda_db` como segunda capa de I5 | Mediciones de RLS contra el filtro `clinic_id`, y roles de dominio alineados con la matriz |
+| Bases por servicio, owner/app/readonly y aislamiento de credenciales, y Row-Level Security en `agenda_db` como segunda capa de I5, medido contra el filtro `clinic_id` | Roles de dominio alineados con la matriz |
 | JWT/OIDC, permisos, `clinic_id` firmado, saga RF1 y clientes entre servicios | — |
 | Disponibilidad, reserva y ciclo de vida de la cita con sus invariantes (I1, I2, I3, I4, I7), caché de disponibilidad en Redis (I8) y medición con y sin caché, y datos de ejemplo de horarios, bloqueos y citas | — |
 | Pruebas reales de privilegios, invariantes de auditoría, JWT/proxy, aislamiento multi-tenant, entrega de relays, citas, carrera, caché, historial, agenda del día, conteo por estado y fuga entre clínicas en los cuatro servicios | — |
+
+## Declaración de uso de inteligencia artificial
+
+Se usó Claude como asistente durante el proyecto: propuso alternativas de diseño, ayudó a repartir las tareas entre los integrantes, redactó la documentación, comentó los archivos y ejecutó las pruebas contra la pila real para comprobar que todo funcionara.
