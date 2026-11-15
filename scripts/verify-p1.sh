@@ -27,6 +27,9 @@ run "Start complete stack" \
 run "P1 API integration" \
   docker compose --profile test run --build --rm p1-api-integration-test
 
+run "Agenda API integration" \
+  docker compose --profile test run --build --rm agenda-api-integration-test
+
 run "Database privilege boundaries" \
   docker compose --profile test run --rm db-security-test
 
