@@ -1,18 +1,21 @@
+// Package expediente guarda las notas clínicas (RF15). Vive aparte del resto
+// del dominio, con su propia base y sus propias credenciales, porque es el
+// dato más sensible del sistema.
 package expediente
 
 import "time"
 
 const (
-	// AppointmentStatusAttended is the status Agenda must expose before
-	// Expediente accepts a clinical note.
+	// AppointmentStatusAttended es el estado que Agenda debe reportar para que
+	// Expediente acepte una nota clínica.
 	AppointmentStatusAttended = "attended"
 )
 
-// AppointmentContext is the minimal information Expediente needs from Agenda
-// to decide whether RF15 may create a clinical note.
+// AppointmentContext es la información mínima que Expediente necesita de
+// Agenda para decidir si RF15 puede crear una nota clínica.
 //
-// Agenda remains the source of truth for appointments. This type is only the
-// service-to-service contract.
+// Agenda sigue siendo la fuente de verdad de las citas. Este tipo es solo el
+// contrato entre los dos servicios.
 type AppointmentContext struct {
 	AppointmentID       string `json:"appointment_id"`
 	ClinicID            string `json:"clinic_id"`
@@ -21,7 +24,8 @@ type AppointmentContext struct {
 	Status              string `json:"status"`
 }
 
-// ClinicalNote is the sensitive RF15 record stored only in expediente_db.
+// ClinicalNote es el registro sensible de RF15, que solo se guarda en
+// expediente_db.
 type ClinicalNote struct {
 	ID                  string    `json:"id"`
 	ClinicID            string    `json:"clinic_id"`
@@ -32,16 +36,18 @@ type ClinicalNote struct {
 	CreatedAt           time.Time `json:"created_at"`
 }
 
-// CreateNoteInput contains the only values the external caller may choose.
+// CreateNoteInput contiene los únicos valores que puede elegir quien llama
+// desde fuera.
 //
-// Clinic, patient and practitioner are derived from trusted sources instead of
-// request data.
+// La clínica, el paciente y el profesional salen de fuentes confiables y no de
+// los datos de la petición.
 type CreateNoteInput struct {
 	AppointmentID string
 	Content       string
 }
 
-// NewClinicalNote is the already-authorized record passed to persistence.
+// NewClinicalNote es el registro ya autorizado que se entrega a la
+// persistencia.
 type NewClinicalNote struct {
 	ClinicID            string
 	AppointmentID       string

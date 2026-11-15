@@ -9,13 +9,13 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// Handler exposes RF15 over HTTP.
+// Handler expone RF15 por HTTP.
 type Handler struct {
 	service *Service
 	logger  *slog.Logger
 }
 
-// NewHandler returns the clinical-note HTTP handler.
+// NewHandler devuelve el handler HTTP de notas clínicas.
 func NewHandler(service *Service, logger *slog.Logger) *Handler {
 	return &Handler{
 		service: service,
@@ -23,7 +23,8 @@ func NewHandler(service *Service, logger *slog.Logger) *Handler {
 	}
 }
 
-// RegisterRoutes adds the RF15 routes to an already-authenticated API group.
+// RegisterRoutes agrega las rutas de RF15 a un grupo que ya exige
+// autenticación.
 func (h *Handler) RegisterRoutes(api *gin.RouterGroup) {
 	ownNotes := auth.RequirePermission(auth.PermNotesOwn)
 
@@ -41,9 +42,9 @@ type createClinicalNoteRequest struct {
 	Content       string `json:"content"`
 }
 
-// Create handles POST /api/v1/clinical-notes.
+// Create atiende POST /api/v1/clinical-notes.
 func (h *Handler) Create(c *gin.Context) {
-	actor, ok := h.actor(c)
+	actor, ok := auth.CurrentActor(c)
 	if !ok {
 		return
 	}
@@ -69,9 +70,9 @@ func (h *Handler) Create(c *gin.Context) {
 	c.JSON(http.StatusCreated, note)
 }
 
-// Get handles GET /api/v1/clinical-notes/:id.
+// Get atiende GET /api/v1/clinical-notes/:id.
 func (h *Handler) Get(c *gin.Context) {
-	actor, ok := h.actor(c)
+	actor, ok := auth.CurrentActor(c)
 	if !ok {
 		return
 	}
@@ -87,17 +88,4 @@ func (h *Handler) Get(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, note)
-}
-
-func (h *Handler) actor(c *gin.Context) (auth.Actor, bool) {
-	actor, ok := auth.ActorFrom(c)
-	if !ok {
-		c.AbortWithStatusJSON(
-			http.StatusUnauthorized,
-			gin.H{"error": "unauthorized"},
-		)
-		return auth.Actor{}, false
-	}
-
-	return actor, true
 }

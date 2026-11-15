@@ -1,3 +1,10 @@
+-- Expediente: outbox de auditoría (RF18).
+--
+-- Cada evento se escribe aquí en la misma transacción que la operación
+-- auditada, y un relay lo entrega después a Auditoría. El outbox solo admite
+-- inserciones (I6): las entregas se anotan aparte, en audit_outbox_delivered,
+-- para no tener que modificarlo.
+
 CREATE TABLE audit_outbox (
     event_id UUID PRIMARY KEY,
     clinic_id UUID NOT NULL,

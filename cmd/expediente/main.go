@@ -1,3 +1,4 @@
+// Command expediente ejecuta el servicio de Expediente: las notas clínicas.
 package main
 
 import (

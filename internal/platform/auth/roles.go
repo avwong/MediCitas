@@ -1,7 +1,7 @@
 package auth
 
-// Role is a domain role. Keycloak realm roles with these names are the single
-// source of truth: every service reads the role from the signed token.
+// Role es un rol de dominio. La única fuente de verdad son los roles de realm
+// de Keycloak con estos nombres: cada servicio lee el rol del token firmado.
 type Role string
 
 const (
@@ -9,8 +9,8 @@ const (
 	RoleClinicAdmin   Role = "clinic_admin"
 	RoleReception     Role = "reception"
 	RolePractitioner  Role = "practitioner"
-	// RoleService identifies the service accounts that services use to call
-	// each other when no user is involved.
+	// RoleService identifica las cuentas de servicio con las que los servicios
+	// se llaman entre sí cuando no hay un usuario de por medio.
 	RoleService Role = "service"
 )
 
@@ -22,20 +22,21 @@ var knownRoles = map[Role]struct{}{
 	RoleService:       {},
 }
 
-// IsClinicRole reports whether the role always belongs to exactly one clinic.
+// IsClinicRole indica si el rol pertenece siempre a exactamente una clínica.
 func (r Role) IsClinicRole() bool {
 	return r == RoleClinicAdmin || r == RoleReception || r == RolePractitioner
 }
 
-// ParseClinicRole returns the clinic role named value. Platform and service
-// roles are rejected, so they can never be assigned through the clinic API.
+// ParseClinicRole devuelve el rol de clínica con ese nombre. Rechaza los roles
+// de plataforma y de servicio, de modo que nunca se puedan asignar desde la
+// API de la clínica.
 func ParseClinicRole(value string) (Role, bool) {
 	role := Role(value)
 	return role, role.IsClinicRole()
 }
 
-// DomainRoleNames lists the realm roles a human user may hold. Exactly one of
-// them is assigned to each user.
+// DomainRoleNames lista los roles de realm que puede tener un usuario humano.
+// Cada usuario tiene exactamente uno.
 func DomainRoleNames() []string {
 	return []string{
 		string(RolePlatformAdmin),

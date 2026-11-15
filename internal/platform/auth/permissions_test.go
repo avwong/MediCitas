@@ -2,8 +2,8 @@ package auth
 
 import "testing"
 
-// TestPermissionMatrix checks the role mapping against the permission matrix
-// of the assignment, row by row. A failure here means the matrix changed.
+// TestPermissionMatrix compara el mapa de roles con la matriz de permisos del
+// enunciado, fila por fila. Si falla, es que la matriz cambió.
 func TestPermissionMatrix(t *testing.T) {
 	type row struct {
 		permission Permission
@@ -24,12 +24,12 @@ func TestPermissionMatrix(t *testing.T) {
 		{PermClinicsManage, all(true, false, false, false)},     // RF1
 		{PermUsersManage, all(false, true, false, false)},       // RF2
 		{PermCatalogManage, all(false, true, false, false)},     // RF3, RF4
-		{PermScheduleManage, all(false, true, false, true)},     // RF5, RF6 (own only)
+		{PermScheduleManage, all(false, true, false, true)},     // RF5, RF6 (solo los propios)
 		{PermAvailabilityRead, all(false, true, true, true)},    // RF7, RF8
-		{PermAppointmentsBook, all(false, true, true, false)},   // RF9 to RF11
+		{PermAppointmentsBook, all(false, true, true, false)},   // RF9 a RF11
 		{PermAppointmentsOutcome, all(false, true, true, true)}, // RF12
 		{PermPatientsWrite, all(false, true, true, false)},      // RF14
-		{PermPatientsRead, all(false, true, true, true)},        // RF14 read only
+		{PermPatientsRead, all(false, true, true, true)},        // RF14, solo lectura
 		{PermNotesOwn, all(false, false, false, true)},          // RF15
 		{PermHistoryRead, all(false, true, true, true)},         // RF16
 		{PermAuditRead, all(false, true, false, false)},         // RF19

@@ -1,6 +1,7 @@
-// Command agendacheck ejecuta las pruebas de integración de Agenda contra la pila real de Compose
-// Hoy cubre RF14 (pacientes), RF18 (auditoría de contacto) e I5 (aislamiento entre clínicas)
-// Cada prueba lleva en su nombre el requisito o invariante que sostiene, para la trazabilidad
+// Command agendacheck ejecuta las pruebas de integración de Agenda contra la
+// pila real de Compose. Hoy cubre RF14 (pacientes), RF18 (auditoría de
+// contacto) e I5 (aislamiento entre clínicas). Cada prueba lleva en su nombre
+// el requisito o invariante que sostiene, para la trazabilidad.
 package main
 
 import (
@@ -21,11 +22,12 @@ const (
 
 	unknownPatientID = "99999999-9999-4999-8999-999999999999"
 
-	// auditTimeout es lo máximo que se espera a que el relay entregue los eventos a Auditoría
+	// auditTimeout es lo máximo que se espera a que el relay entregue los
+	// eventos a Auditoría.
 	auditTimeout = 40 * time.Second
 )
 
-// patient es la respuesta de las rutas de pacientes
+// patient es la respuesta de las rutas de pacientes.
 type patient struct {
 	ID             string `json:"id"`
 	ClinicID       string `json:"clinic_id"`
@@ -39,13 +41,13 @@ type patient struct {
 	Active         bool   `json:"active"`
 }
 
-// listResponse es la respuesta de los listados
-// Los elementos se leen como mapas para poder comprobar qué campos traen
+// listResponse es la respuesta de los listados. Los elementos se leen como
+// mapas para poder comprobar qué campos traen.
 type listResponse struct {
 	Items []map[string]any `json:"items"`
 }
 
-// auditEntry es un registro de la bitácora central (RF19)
+// auditEntry es un registro de la bitácora central (RF19).
 type auditEntry struct {
 	ClinicID      string `json:"clinic_id"`
 	ActorUsername string `json:"actor_username"`
@@ -59,8 +61,8 @@ type tokenResponse struct {
 	AccessToken string `json:"access_token"`
 }
 
-// suite guarda los tokens y el estado que comparten las pruebas
-// Las pruebas corren en orden y cada una puede usar lo que crearon las anteriores
+// suite guarda los tokens y el estado que comparten las pruebas. Las pruebas
+// corren en orden y cada una puede usar lo que crearon las anteriores.
 type suite struct {
 	apiURL      string
 	keycloakURL string
@@ -73,16 +75,17 @@ type suite struct {
 	northReception string
 	northAdmin     string
 
-	// runID hace únicas las identificaciones de cada ejecución
-	// Así las pruebas se pueden repetir sin chocar con datos de ejecuciones anteriores
+	// runID hace únicas las identificaciones de cada ejecución, para que las
+	// pruebas se puedan repetir sin chocar con datos de ejecuciones
+	// anteriores.
 	runID string
 
 	demoPatientID  string
 	otherPatientID string
 	northPatientID string
 
-	// Cuántos accesos de lectura y escritura debe tener registrados el paciente de Demo
-	// Se comparan al final con la bitácora de auditoría
+	// Cuántos accesos de lectura y escritura debe tener registrados el
+	// paciente de Demo. Al final se comparan con la bitácora de auditoría.
 	expectedReads  int
 	expectedWrites int
 }
@@ -124,7 +127,7 @@ func envOr(name, fallback string) string {
 	return strings.TrimRight(value, "/")
 }
 
-// login obtiene un token de cada usuario de prueba
+// login obtiene un token de cada usuario de prueba.
 func (s *suite) login(ctx context.Context) error {
 	users := []struct {
 		target   *string
@@ -151,8 +154,8 @@ func (s *suite) login(ctx context.Context) error {
 	return nil
 }
 
-// token pide un token a Keycloak
-// Reintenta porque Keycloak puede tardar unos segundos en aceptar peticiones
+// token pide un token a Keycloak. Reintenta porque Keycloak puede tardar unos
+// segundos en aceptar peticiones.
 func (s *suite) token(ctx context.Context, username, password string) (string, error) {
 	form := url.Values{
 		"grant_type": {"password"},
@@ -218,8 +221,9 @@ func (s *suite) tokenOnce(ctx context.Context, form url.Values) (string, error) 
 	return token.AccessToken, nil
 }
 
-// call hace una petición a la API y devuelve el código y el cuerpo de la respuesta
-// El cuerpo se envía como JSON en UTF-8, así se comprueban también las tildes
+// call hace una petición a la API y devuelve el código y el cuerpo de la
+// respuesta. El cuerpo se envía como JSON en UTF-8, así se comprueban también
+// las tildes.
 func (s *suite) call(ctx context.Context, method, path, token, body string) (int, []byte, error) {
 	var reader io.Reader
 	if body != "" {
@@ -253,7 +257,7 @@ func (s *suite) call(ctx context.Context, method, path, token, body string) (int
 	return resp.StatusCode, raw, nil
 }
 
-// expect hace una petición y falla si el código de estado no es el esperado
+// expect hace una petición y falla si el código de estado no es el esperado.
 func (s *suite) expect(ctx context.Context, method, path, token, body string, want int) ([]byte, error) {
 	status, raw, err := s.call(ctx, method, path, token, body)
 	if err != nil {
@@ -267,8 +271,8 @@ func (s *suite) expect(ctx context.Context, method, path, token, body string, wa
 	return raw, nil
 }
 
-// patientBody arma el cuerpo de un alta con la identificación indicada
-// Incluye tildes a propósito para comprobar que se guardan bien
+// patientBody arma el cuerpo de un alta con la identificación indicada.
+// Incluye tildes a propósito, para comprobar que se guardan bien.
 func patientBody(identification string) string {
 	body, _ := json.Marshal(map[string]string{
 		"identification": identification,
@@ -283,7 +287,7 @@ func patientBody(identification string) string {
 	return string(body)
 }
 
-// identification devuelve una identificación única de esta ejecución
+// identification devuelve una identificación única de esta ejecución.
 func (s *suite) identification(suffix string) string {
 	return "IT-" + s.runID + "-" + suffix
 }
@@ -295,7 +299,8 @@ func decodePatient(raw []byte) (patient, error) {
 	return result, err
 }
 
-// getPatient lee un paciente y, si es el de Demo y la lectura se concede, la cuenta como acceso auditado
+// getPatient lee un paciente y, si es el de Demo y la lectura se concede, la
+// cuenta como acceso auditado.
 func (s *suite) getPatient(ctx context.Context, token, id string) (patient, error) {
 	raw, err := s.expect(ctx, http.MethodGet, "/api/v1/patients/"+id, token, "", http.StatusOK)
 	if err != nil {
@@ -309,7 +314,7 @@ func (s *suite) getPatient(ctx context.Context, token, id string) (patient, erro
 	return decodePatient(raw)
 }
 
-// listIDs devuelve los ids de un listado de pacientes
+// listIDs devuelve los ids de un listado de pacientes.
 func listIDs(raw []byte) ([]string, []map[string]any, error) {
 	var list listResponse
 	if err := json.Unmarshal(raw, &list); err != nil {
@@ -335,7 +340,8 @@ func contains(values []string, wanted string) bool {
 	return false
 }
 
-// need falla con un mensaje claro si una prueba anterior no dejó el estado que esta necesita
+// need falla con un mensaje claro si una prueba anterior no dejó el estado que
+// esta necesita.
 func need(value, what string) error {
 	if value == "" {
 		return fmt.Errorf("falta %s: falló una prueba anterior de la que esta depende", what)
@@ -344,7 +350,7 @@ func need(value, what string) error {
 	return nil
 }
 
-// run ejecuta todas las pruebas en orden y devuelve cuántas fallaron
+// run ejecuta todas las pruebas en orden y devuelve cuántas fallaron.
 func (s *suite) run(ctx context.Context) int {
 	tests := []struct {
 		name string
@@ -660,7 +666,7 @@ func (s *suite) otherClinicCannotUpdate(ctx context.Context) error {
 		return err
 	}
 
-	// El intento ajeno no debe haber cambiado nada
+	// El intento ajeno no debe haber cambiado nada.
 	got, err := s.getPatient(ctx, s.reception, s.demoPatientID)
 	if err != nil {
 		return err
@@ -696,7 +702,8 @@ func (s *suite) listsDoNotCrossClinics(ctx context.Context) error {
 		return fmt.Errorf("el listado de Demo debe tener a su paciente y no al de Norte")
 	}
 
-	// La clínica de Norte pide el listado, incluso intentando forzar la clínica de Demo con parámetros
+	// La clínica de Norte pide el listado, incluso intentando forzar la
+	// clínica de Demo con parámetros.
 	queries := []string{
 		"/api/v1/patients?limit=200",
 		"/api/v1/patients?limit=200&clinic_id=" + demoClinicID,
@@ -723,7 +730,8 @@ func (s *suite) listsDoNotCrossClinics(ctx context.Context) error {
 		}
 	}
 
-	// Buscar desde Norte una identificación que solo existe en Demo no debe encontrar nada
+	// Buscar desde Norte una identificación que solo existe en Demo no debe
+	// encontrar nada.
 	raw, err := s.expect(ctx, http.MethodGet, "/api/v1/patients?q="+url.QueryEscape(s.identification("B")), s.northReception, "", http.StatusOK)
 	if err != nil {
 		return err
@@ -772,7 +780,7 @@ func (s *suite) searchAndLimit(ctx context.Context) error {
 		return err
 	}
 
-	// Prefijo de la identificación, sin distinguir mayúsculas
+	// Prefijo de la identificación, sin distinguir mayúsculas.
 	prefix := strings.ToLower(s.identification("A"))
 
 	raw, err := s.expect(ctx, http.MethodGet, "/api/v1/patients?q="+url.QueryEscape(prefix), s.reception, "", http.StatusOK)
@@ -789,7 +797,7 @@ func (s *suite) searchAndLimit(ctx context.Context) error {
 		return fmt.Errorf("la búsqueda por prefijo debe encontrar exactamente al paciente, encontró %v", ids)
 	}
 
-	// El límite se respeta
+	// El límite se respeta.
 	raw, err = s.expect(ctx, http.MethodGet, "/api/v1/patients?limit=1", s.reception, "", http.StatusOK)
 	if err != nil {
 		return err
@@ -804,12 +812,12 @@ func (s *suite) searchAndLimit(ctx context.Context) error {
 		return fmt.Errorf("limit=1 devolvió %d pacientes", len(ids))
 	}
 
-	// Un límite que no es un número se rechaza
+	// Un límite que no es un número se rechaza.
 	if _, err := s.expect(ctx, http.MethodGet, "/api/v1/patients?limit=abc", s.reception, "", http.StatusBadRequest); err != nil {
 		return err
 	}
 
-	// El comodín % se busca como texto, no como "todo"
+	// El comodín % se busca como texto, no como "todo".
 	raw, err = s.expect(ctx, http.MethodGet, "/api/v1/patients?q=%25", s.reception, "", http.StatusOK)
 	if err != nil {
 		return err
@@ -827,7 +835,8 @@ func (s *suite) searchAndLimit(ctx context.Context) error {
 	return nil
 }
 
-// auditEntries consulta la bitácora de la clínica del token filtrando por paciente
+// auditEntries consulta la bitácora de la clínica del token filtrando por
+// paciente.
 func (s *suite) auditEntries(ctx context.Context, token, patientID string) ([]auditEntry, error) {
 	raw, err := s.expect(ctx, http.MethodGet, "/api/v1/audit?limit=500&patient_id="+patientID, token, "", http.StatusOK)
 	if err != nil {
@@ -858,10 +867,11 @@ func countActions(entries []auditEntry) (reads, writes int) {
 	return reads, writes
 }
 
-// auditTrailIsExact comprueba que la bitácora tiene exactamente los accesos que se hicieron
-// Los eventos llegan de forma asíncrona, así que se espera a que el relay los entregue
-// Después se vuelve a consultar para comprobar que no aparece ningún evento de más
-// Las operaciones rechazadas (409, 403, 404) no deben haber dejado eventos
+// auditTrailIsExact comprueba que la bitácora tiene exactamente los accesos
+// que se hicieron. Los eventos llegan de forma asíncrona, así que primero
+// espera a que el relay los entregue y después vuelve a consultar, para
+// comprobar que no aparece ningún evento de más. Las operaciones rechazadas
+// (409, 403, 404) no deben haber dejado eventos.
 func (s *suite) auditTrailIsExact(ctx context.Context) error {
 	if err := need(s.demoPatientID, "el paciente de Demo"); err != nil {
 		return err
@@ -891,7 +901,7 @@ func (s *suite) auditTrailIsExact(ctx context.Context) error {
 		time.Sleep(time.Second)
 	}
 
-	// Margen para que un evento de más, si existiera, alcance a llegar
+	// Margen para que un evento de más, si existiera, alcance a llegar.
 	time.Sleep(4 * time.Second)
 
 	entries, err := s.auditEntries(ctx, s.admin, s.demoPatientID)

@@ -19,15 +19,17 @@ import (
 	"github.com/avwong/MediCitas/internal/platform/svcclient"
 )
 
-// ClinicAttribute is the Keycloak user attribute that holds the clinic. A
-// protocol mapper copies it into the clinic_id claim of every access token.
+// ClinicAttribute es el atributo del usuario de Keycloak que guarda la
+// clínica. Un protocol mapper lo copia al claim clinic_id de cada token de
+// acceso.
 const ClinicAttribute = "clinic_id"
 
 const maxKeycloakResponse = 1 << 20
 
-// KeycloakAdmin implements IdentityProvider with Keycloak's admin REST API.
-// It authenticates as the tenancy-service client, whose service account only
-// holds the realm-management roles needed to manage users.
+// KeycloakAdmin implementa IdentityProvider con la API REST de administración
+// de Keycloak. Se autentica como el client tenancy-service, cuya cuenta de
+// servicio solo tiene los roles de realm-management necesarios para
+// administrar usuarios.
 type KeycloakAdmin struct {
 	baseURL string
 	realm   string
@@ -35,7 +37,8 @@ type KeycloakAdmin struct {
 	http    *http.Client
 }
 
-// NewKeycloakAdmin returns an admin client for realm at baseURL.
+// NewKeycloakAdmin devuelve un cliente de administración para realm en
+// baseURL.
 func NewKeycloakAdmin(baseURL, realm string, tokens *svcclient.ClientCredentials) *KeycloakAdmin {
 	return &KeycloakAdmin{
 		baseURL: strings.TrimRight(baseURL, "/"),
@@ -50,9 +53,8 @@ type roleRepresentation struct {
 	Name string `json:"name"`
 }
 
-// CreateUser creates the user, then assigns the realm role. If the role
-// cannot be assigned the user is deleted, so no identity is left without a
-// role.
+// CreateUser crea el usuario y después le asigna el rol de realm. Si el rol no
+// se puede asignar, borra el usuario para que no quede una identidad sin rol.
 func (k *KeycloakAdmin) CreateUser(ctx context.Context, identity NewIdentity) (string, error) {
 	representation := map[string]any{
 		"username":      identity.Account.Username,
@@ -107,7 +109,8 @@ func (k *KeycloakAdmin) CreateUser(ctx context.Context, identity NewIdentity) (s
 	return subject, nil
 }
 
-// DeleteUser removes a user. Deleting a user that does not exist succeeds.
+// DeleteUser elimina un usuario. Borrar uno que no existe también cuenta como
+// éxito.
 func (k *KeycloakAdmin) DeleteUser(ctx context.Context, subject string) error {
 	resp, err := k.do(ctx, http.MethodDelete, "/users/"+url.PathEscape(subject), nil)
 	if err != nil {
@@ -117,7 +120,7 @@ func (k *KeycloakAdmin) DeleteUser(ctx context.Context, subject string) error {
 	return expectStatus(resp, http.StatusNoContent, http.StatusNotFound)
 }
 
-// ReplaceRole leaves the user with exactly one domain role.
+// ReplaceRole deja al usuario con exactamente un rol de dominio.
 func (k *KeycloakAdmin) ReplaceRole(ctx context.Context, subject string, role auth.Role) error {
 	mappingsPath := "/users/" + url.PathEscape(subject) + "/role-mappings/realm"
 
@@ -159,11 +162,13 @@ func (k *KeycloakAdmin) ReplaceRole(ctx context.Context, subject string, role au
 	return nil
 }
 
-// Disable blocks new logins and ends the user's active sessions.
+// Disable bloquea los inicios de sesión nuevos y cierra las sesiones activas
+// del usuario.
 func (k *KeycloakAdmin) Disable(ctx context.Context, subject string) error {
 	userPath := "/users/" + url.PathEscape(subject)
 
-	// The full representation is sent back so no attribute is lost on update.
+	// Se devuelve la representación completa para no perder ningún atributo al
+	// actualizar.
 	var representation map[string]any
 	if err := k.getJSON(ctx, userPath, &representation); err != nil {
 		return err
@@ -226,8 +231,8 @@ func (k *KeycloakAdmin) getJSON(ctx context.Context, resourcePath string, out an
 	return nil
 }
 
-// do sends an authenticated request to the realm's admin API. The caller
-// owns the response body.
+// do envía una petición autenticada a la API de administración del realm.
+// Quien llama es responsable de cerrar el cuerpo de la respuesta.
 func (k *KeycloakAdmin) do(ctx context.Context, method, resourcePath string, in any) (*http.Response, error) {
 	token, err := k.tokens.Token(ctx)
 	if err != nil {
@@ -265,7 +270,7 @@ func (k *KeycloakAdmin) do(ctx context.Context, method, resourcePath string, in 
 	return resp, nil
 }
 
-// expectStatus closes the body and maps an unexpected status to an error.
+// expectStatus cierra el cuerpo y convierte un código inesperado en un error.
 func expectStatus(resp *http.Response, accepted ...int) error {
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxKeycloakResponse))

@@ -1,14 +1,14 @@
-// Package agenda is the core of MediCitas: catalog, practitioners and, as the
-// remaining requirements land, schedules, blocks, patients, availability and
-// appointments. They live together because booking must read and write all
-// of them in a single transaction.
+// Package agenda es el núcleo de MediCitas: catálogo, profesionales y
+// pacientes y, conforme se implementen los requisitos que faltan, horarios,
+// bloqueos, disponibilidad y citas. Viven juntos porque reservar debe leer y
+// escribir todo eso en una sola transacción.
 package agenda
 
 import "time"
 
-// MedicalService is a type of consultation offered by a clinic (RF3). Its
-// duration fixes the size of the slot an appointment takes (I4). It is not
-// called Service to avoid confusing it with the service layer.
+// MedicalService es un tipo de consulta que ofrece una clínica (RF3). Su
+// duración fija el tamaño del espacio que ocupa una cita (I4). No se llama
+// Service para no confundirlo con la capa de servicio.
 type MedicalService struct {
 	ID              string    `json:"id"`
 	ClinicID        string    `json:"clinic_id"`
@@ -20,17 +20,16 @@ type MedicalService struct {
 	CreatedAt       time.Time `json:"created_at"`
 }
 
-// Practitioner is a health professional and the services they may attend
+// Practitioner es un profesional de salud y los servicios que puede atender
 // (RF4).
 type Practitioner struct {
 	ID       string `json:"id"`
 	ClinicID string `json:"clinic_id"`
-	// UserID references the user in the tenancy service. There is no foreign
-	// key because it lives in another database; it is validated when the
-	// practitioner is registered.
+	// UserID apunta al usuario en Tenancy. No hay llave foránea porque vive en
+	// otra base de datos; se valida al registrar al profesional.
 	UserID string `json:"user_id"`
-	// UserSubject is the Keycloak subject of that user. It lets the service
-	// recognize a practitioner from their token ("only their own").
+	// UserSubject es el subject de Keycloak de ese usuario. Permite reconocer
+	// a un profesional a partir de su token ("solo los propios").
 	UserSubject string    `json:"keycloak_subject"`
 	DisplayName string    `json:"display_name"`
 	SpecialtyID string    `json:"specialty_id"`
@@ -40,14 +39,14 @@ type Practitioner struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
-// NewMedicalService is the input to create a service.
+// NewMedicalService es la entrada para crear un servicio.
 type NewMedicalService struct {
 	Name            string
 	DurationMinutes int
 	Specialty       string
 }
 
-// NewPractitioner is the input to register a practitioner.
+// NewPractitioner es la entrada para registrar a un profesional.
 type NewPractitioner struct {
 	UserID      string
 	UserSubject string
@@ -55,7 +54,7 @@ type NewPractitioner struct {
 	Specialty   string
 }
 
-// StaffUser is the view of a tenancy user that the agenda needs.
+// StaffUser es lo que Agenda necesita saber de un usuario de Tenancy.
 type StaffUser struct {
 	ID       string `json:"id"`
 	ClinicID string `json:"clinic_id"`

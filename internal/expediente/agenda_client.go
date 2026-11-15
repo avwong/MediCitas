@@ -8,26 +8,27 @@ import (
 	"github.com/avwong/MediCitas/internal/platform/svcclient"
 )
 
-// AgendaClient implements AppointmentVerifier through Agenda's future RF15
-// integration endpoint.
+// AgendaClient implementa AppointmentVerifier con la ruta interna de Agenda
+// que da el contexto de una cita para RF15.
 //
-// The user's bearer token is forwarded unchanged so Agenda applies its own
-// authentication, clinic isolation and resource-level authorization.
+// El bearer token del usuario se reenvía sin cambios, para que Agenda aplique
+// su propia autenticación, el aislamiento entre clínicas y la autorización
+// sobre el recurso.
 type AgendaClient struct {
 	client *svcclient.Client
 }
 
-// NewAgendaClient returns the RF15 Agenda adapter.
+// NewAgendaClient devuelve el adaptador de Agenda para RF15.
 func NewAgendaClient(baseURL string) *AgendaClient {
 	return &AgendaClient{
 		client: svcclient.New(baseURL),
 	}
 }
 
-// ClinicalNoteContext asks Agenda for the minimal appointment information RF15
-// needs.
+// ClinicalNoteContext le pide a Agenda la información mínima de la cita que
+// necesita RF15.
 //
-// Contract for P2/P3:
+// Contrato que debe cumplir Agenda:
 // GET /internal/appointments/{id}/clinical-note-context
 func (c *AgendaClient) ClinicalNoteContext(
 	ctx context.Context,

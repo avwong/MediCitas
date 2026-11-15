@@ -1,3 +1,6 @@
+// Command p1check ejecuta las pruebas de integración de la plataforma contra
+// la pila real de Compose: autenticación (401), permisos (403), aislamiento
+// entre clínicas (I5) y que el proxy no exponga las rutas internas.
 package main
 
 import (
@@ -79,6 +82,8 @@ func envOr(name, fallback string) string {
 	return strings.TrimRight(value, "/")
 }
 
+// run obtiene los tokens de prueba y ejecuta las comprobaciones en orden. Se
+// detiene en la primera que falla.
 func (c *checker) run(ctx context.Context) error {
 	demoAdmin, err := c.userToken(ctx, "clinic.admin", "Clinic123!")
 	if err != nil {
@@ -383,6 +388,7 @@ func (c *checker) run(ctx context.Context) error {
 	return nil
 }
 
+// userToken pide el token de un usuario con el client público medicitas-cli.
 func (c *checker) userToken(
 	ctx context.Context,
 	username string,
@@ -396,6 +402,7 @@ func (c *checker) userToken(
 	})
 }
 
+// serviceToken pide el token de una cuenta de servicio (client credentials).
 func (c *checker) serviceToken(
 	ctx context.Context,
 	clientID string,
@@ -408,6 +415,8 @@ func (c *checker) serviceToken(
 	})
 }
 
+// token reintenta la petición, porque Keycloak puede tardar unos segundos en
+// aceptar peticiones después de arrancar.
 func (c *checker) token(
 	ctx context.Context,
 	form url.Values,
@@ -485,6 +494,8 @@ func (c *checker) tokenOnce(
 	return token.AccessToken, nil
 }
 
+// expectStatus hace una petición y falla si el código de estado no es el
+// esperado.
 func (c *checker) expectStatus(
 	ctx context.Context,
 	method string,

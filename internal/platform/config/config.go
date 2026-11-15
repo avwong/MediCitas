@@ -1,4 +1,4 @@
-// Package config reads service configuration from environment variables.
+// Package config lee la configuración del servicio desde variables de entorno.
 package config
 
 import (
@@ -7,15 +7,15 @@ import (
 	"strings"
 )
 
-// Loader reads environment variables and collects every missing required
-// variable, so a misconfigured service reports all problems at once instead
-// of failing on the first one.
+// Loader lee variables de entorno y recuerda todas las obligatorias que
+// falten, para que un servicio mal configurado reporte todos los problemas de
+// una vez en lugar de fallar con el primero.
 type Loader struct {
 	missing []string
 }
 
-// Required returns the trimmed value of name and records it as missing when
-// it is empty.
+// Required devuelve el valor de name sin espacios y lo anota como faltante si
+// está vacío.
 func (l *Loader) Required(name string) string {
 	value := strings.TrimSpace(os.Getenv(name))
 	if value == "" {
@@ -25,7 +25,7 @@ func (l *Loader) Required(name string) string {
 	return value
 }
 
-// Optional returns the trimmed value of name, or fallback when it is empty.
+// Optional devuelve el valor de name sin espacios, o fallback si está vacío.
 func (l *Loader) Optional(name, fallback string) string {
 	value := strings.TrimSpace(os.Getenv(name))
 	if value == "" {
@@ -35,7 +35,7 @@ func (l *Loader) Optional(name, fallback string) string {
 	return value
 }
 
-// Err reports every required variable that was missing.
+// Err reporta todas las variables obligatorias que faltaron.
 func (l *Loader) Err() error {
 	if len(l.missing) == 0 {
 		return nil

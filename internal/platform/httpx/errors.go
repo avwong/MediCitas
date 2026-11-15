@@ -10,8 +10,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// StatusFor maps an error to its HTTP status and a message that is safe to
-// show to the client.
+// StatusFor traduce un error a su código HTTP y a un mensaje que se puede
+// mostrar al cliente sin riesgo.
 func StatusFor(err error) (int, string) {
 	status, fallback := statusAndDefault(err)
 
@@ -39,9 +39,9 @@ func statusAndDefault(err error) (int, string) {
 	}
 }
 
-// WriteError answers the request with the status that corresponds to err.
-// Internal and dependency errors are logged with the request ID; the client
-// only receives a generic message.
+// WriteError responde la petición con el código que corresponde a err. Los
+// errores internos y de dependencias se registran con el ID de la petición; el
+// cliente solo recibe un mensaje genérico.
 func WriteError(c *gin.Context, logger *slog.Logger, err error) {
 	status, message := StatusFor(err)
 
@@ -65,8 +65,8 @@ func WriteError(c *gin.Context, logger *slog.Logger, err error) {
 	c.AbortWithStatusJSON(status, gin.H{"error": message})
 }
 
-// BindJSON decodes the request body into dst and answers 400 when it is
-// malformed. It reports whether the handler may continue.
+// BindJSON decodifica el cuerpo de la petición en dst y responde 400 si está
+// mal formado. Indica si el handler puede continuar.
 func BindJSON(c *gin.Context, dst any) bool {
 	if err := c.ShouldBindJSON(dst); err != nil {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{

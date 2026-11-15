@@ -20,7 +20,7 @@ var (
 	usernamePattern         = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{2,63}$`)
 )
 
-// Store persists clinics and users in tenancy_db.
+// Store guarda las clínicas y los usuarios en tenancy_db.
 type Store interface {
 	InsertClinic(ctx context.Context, clinic Clinic) (Clinic, error)
 	ActivateClinic(ctx context.Context, clinicID string, admin User) (Clinic, User, error)
@@ -35,24 +35,29 @@ type Store interface {
 	DeactivateUser(ctx context.Context, clinicID, userID string) error
 }
 
-// IdentityProvider manages identities in Keycloak.
+// IdentityProvider administra las identidades en Keycloak.
 type IdentityProvider interface {
-	// CreateUser creates an enabled user with the clinic attribute and the
-	// realm role, and returns its subject.
+	// CreateUser crea un usuario habilitado, con el atributo de clínica y el
+	// rol de realm, y devuelve su subject.
 	CreateUser(ctx context.Context, identity NewIdentity) (string, error)
 	DeleteUser(ctx context.Context, subject string) error
 	ReplaceRole(ctx context.Context, subject string, role auth.Role) error
-	// Disable blocks new logins and ends the user's sessions.
+	// Disable bloquea los inicios de sesión nuevos y cierra las sesiones del
+	// usuario.
 	Disable(ctx context.Context, subject string) error
 }
 
-// AgendaProvisioner creates the projection of a clinic in the agenda service.
+// AgendaProvisioner mantiene en Agenda lo que depende de Tenancy: la
+// proyección de cada clínica y si el profesional de un usuario sigue activo.
 type AgendaProvisioner interface {
 	ProvisionClinic(ctx context.Context, clinicID, timezone string) error
 	DeprovisionClinic(ctx context.Context, clinicID string) error
+	// SetPractitionerActive no falla si el usuario no tiene profesional en
+	// Agenda.
+	SetPractitionerActive(ctx context.Context, userID string, active bool) error
 }
 
-// Service implements RF1 and RF2.
+// Service implementa RF1 y RF2.
 type Service struct {
 	store  Store
 	idp    IdentityProvider
@@ -60,17 +65,17 @@ type Service struct {
 	logger *slog.Logger
 }
 
-// NewService returns the tenancy use cases.
+// NewService devuelve los casos de uso de Tenancy.
 func NewService(store Store, idp IdentityProvider, agenda AgendaProvisioner, logger *slog.Logger) *Service {
 	return &Service{store: store, idp: idp, agenda: agenda, logger: logger}
 }
 
-// CreateClinic registers a clinic together with its first administrator
-// (RF1).
+// CreateClinic registra una clínica junto con su primer administrador (RF1).
 //
-// It spans three systems that share no transaction: tenancy_db, the agenda
-// service and Keycloak. It runs as a saga: each step that fails undoes the
-// previous ones, so a failed request leaves no half-created clinic behind.
+// Toca tres sistemas que no comparten transacción: tenancy_db, el servicio de
+// Agenda y Keycloak. Se ejecuta como una saga: si un paso falla se deshacen
+// los anteriores, de modo que una petición fallida no deja una clínica a medio
+// crear.
 func (s *Service) CreateClinic(ctx context.Context, in CreateClinicInput) (Clinic, User, error) {
 	in.Identifier = strings.ToLower(strings.TrimSpace(in.Identifier))
 	in.Name = strings.TrimSpace(in.Name)
@@ -92,7 +97,7 @@ func (s *Service) CreateClinic(ctx context.Context, in CreateClinicInput) (Clini
 		return Clinic{}, User{}, err
 	}
 
-	// Step 1: register the clinic, not yet active.
+	// Paso 1: registrar la clínica, todavía sin activar.
 	clinic, err := s.store.InsertClinic(ctx, Clinic{
 		Identifier: in.Identifier,
 		Name:       in.Name,
@@ -109,7 +114,7 @@ func (s *Service) CreateClinic(ctx context.Context, in CreateClinicInput) (Clini
 		return s.store.DeleteProvisioningClinic(ctx, clinicID)
 	}
 
-	// Step 2: provision the clinic in the agenda.
+	// Paso 2: aprovisionar la clínica en Agenda.
 	if err := s.agenda.ProvisionClinic(ctx, clinicID, clinic.Timezone); err != nil {
 		s.compensate(ctx, "delete clinic", undoClinic)
 		return Clinic{}, User{}, fmt.Errorf("provision clinic in agenda: %w", err)
@@ -119,7 +124,7 @@ func (s *Service) CreateClinic(ctx context.Context, in CreateClinicInput) (Clini
 		return s.agenda.DeprovisionClinic(ctx, clinicID)
 	}
 
-	// Step 3: create the administrator in Keycloak.
+	// Paso 3: crear el administrador en Keycloak.
 	subject, err := s.idp.CreateUser(ctx, NewIdentity{
 		Account:  admin,
 		ClinicID: clinicID,
@@ -131,7 +136,8 @@ func (s *Service) CreateClinic(ctx context.Context, in CreateClinicInput) (Clini
 		return Clinic{}, User{}, err
 	}
 
-	// Step 4: record the administrator and activate the clinic atomically.
+	// Paso 4: registrar el administrador y activar la clínica de forma
+	// atómica.
 	activeClinic, adminUser, err := s.store.ActivateClinic(ctx, clinicID, User{
 		ClinicID: clinicID,
 		Subject:  subject,
@@ -151,13 +157,14 @@ func (s *Service) CreateClinic(ctx context.Context, in CreateClinicInput) (Clini
 	return activeClinic, adminUser, nil
 }
 
-// ListClinics returns every clinic (platform administrators only).
+// ListClinics devuelve todas las clínicas (solo para la administración de
+// plataforma).
 func (s *Service) ListClinics(ctx context.Context) ([]Clinic, error) {
 	return s.store.ListClinics(ctx)
 }
 
-// CreateUser creates a user in the actor's clinic (RF2). The identity is
-// created in Keycloak first and compensated if the local record fails.
+// CreateUser crea un usuario en la clínica del actor (RF2). La identidad se
+// crea primero en Keycloak y se compensa si falla el registro local.
 func (s *Service) CreateUser(ctx context.Context, actor auth.Actor, in CreateUserInput) (User, error) {
 	role, ok := auth.ParseClinicRole(in.Role)
 	if !ok {
@@ -195,7 +202,7 @@ func (s *Service) CreateUser(ctx context.Context, actor auth.Actor, in CreateUse
 	return user, nil
 }
 
-// GetUser returns a user of the actor's clinic.
+// GetUser devuelve un usuario de la clínica del actor.
 func (s *Service) GetUser(ctx context.Context, actor auth.Actor, userID string) (User, error) {
 	userID, ok := ids.Normalize(userID)
 	if !ok {
@@ -205,19 +212,21 @@ func (s *Service) GetUser(ctx context.Context, actor auth.Actor, userID string) 
 	return s.store.GetUser(ctx, actor.ClinicID, userID)
 }
 
-// ListUsers returns the users of the actor's clinic.
+// ListUsers devuelve los usuarios de la clínica del actor.
 func (s *Service) ListUsers(ctx context.Context, actor auth.Actor) ([]User, error) {
 	return s.store.ListUsers(ctx, actor.ClinicID)
 }
 
-// Me returns the local record of the caller, if any.
+// Me devuelve el registro local de quien llama, si existe.
 func (s *Service) Me(ctx context.Context, actor auth.Actor) (User, error) {
 	return s.store.FindUserBySubject(ctx, actor.Subject)
 }
 
-// UpdateUserRole changes the role of a user of the actor's clinic (RF2).
-// Keycloak is updated first because it is the source of truth; the local copy
-// follows. Retrying after a partial failure converges to the same state.
+// UpdateUserRole cambia el rol de un usuario de la clínica del actor (RF2).
+// Keycloak se actualiza primero porque es la fuente de verdad; después Agenda,
+// si el usuario deja de ser profesional o vuelve a serlo, y al final la copia
+// local. Si falla a medias, reintentar lleva al mismo estado final: la copia
+// local todavía tiene el rol anterior, así que se repiten los mismos pasos.
 func (s *Service) UpdateUserRole(ctx context.Context, actor auth.Actor, userID, roleName string) (User, error) {
 	role, ok := auth.ParseClinicRole(roleName)
 	if !ok {
@@ -233,6 +242,15 @@ func (s *Service) UpdateUserRole(ctx context.Context, actor auth.Actor, userID, 
 		return User{}, err
 	}
 
+	wasPractitioner := user.Role == auth.RolePractitioner
+	isPractitioner := role == auth.RolePractitioner
+
+	if wasPractitioner != isPractitioner {
+		if err := s.agenda.SetPractitionerActive(ctx, user.ID, isPractitioner); err != nil {
+			return User{}, fmt.Errorf("update practitioner in agenda: %w", err)
+		}
+	}
+
 	if err := s.store.SetUserRole(ctx, actor.ClinicID, user.ID, role); err != nil {
 		return User{}, err
 	}
@@ -242,9 +260,11 @@ func (s *Service) UpdateUserRole(ctx context.Context, actor auth.Actor, userID, 
 	return user, nil
 }
 
-// DeactivateUser is the logical delete of RF2. The user is disabled in
-// Keycloak first, which blocks new logins and ends their sessions; tokens
-// already issued expire within the access-token lifespan.
+// DeactivateUser es la baja lógica de RF2. Primero se deshabilita al usuario
+// en Keycloak, lo que bloquea los inicios de sesión nuevos y cierra sus
+// sesiones; los tokens ya emitidos vencen dentro de la vida del token de
+// acceso. Si era profesional, también se desactiva en Agenda. La copia local
+// se marca al final, para que un fallo a medias se pueda reintentar.
 func (s *Service) DeactivateUser(ctx context.Context, actor auth.Actor, userID string) error {
 	user, err := s.modifiableUser(ctx, actor, userID)
 	if err != nil {
@@ -255,11 +275,18 @@ func (s *Service) DeactivateUser(ctx context.Context, actor auth.Actor, userID s
 		return err
 	}
 
+	if user.Role == auth.RolePractitioner {
+		if err := s.agenda.SetPractitionerActive(ctx, user.ID, false); err != nil {
+			return fmt.Errorf("deactivate practitioner in agenda: %w", err)
+		}
+	}
+
 	return s.store.DeactivateUser(ctx, actor.ClinicID, user.ID)
 }
 
-// modifiableUser returns an active user of the actor's clinic other than the
-// actor, so an administrator cannot lock themselves out.
+// modifiableUser devuelve un usuario activo de la clínica del actor que no sea
+// el propio actor, para que un administrador no pueda dejarse a sí mismo sin
+// acceso.
 func (s *Service) modifiableUser(ctx context.Context, actor auth.Actor, userID string) (User, error) {
 	userID, ok := ids.Normalize(userID)
 	if !ok {
@@ -282,9 +309,10 @@ func (s *Service) modifiableUser(ctx context.Context, actor auth.Actor, userID s
 	return user, nil
 }
 
-// compensate runs an undo step of a saga. It uses a fresh context so a
-// cancelled request still gets cleaned up, and logs failures: a failed
-// compensation leaves state that an operator must fix.
+// compensate ejecuta un paso de deshacer de una saga. Usa un contexto nuevo
+// para que la limpieza ocurra aunque la petición se haya cancelado, y registra
+// los fallos: una compensación fallida deja un estado que alguien debe
+// corregir a mano.
 func (s *Service) compensate(ctx context.Context, step string, undo func(context.Context) error) {
 	undoCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()

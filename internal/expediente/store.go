@@ -7,7 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// NoteStore is the persistence boundary used by the RF15 service.
+// NoteStore es la persistencia que usa el servicio de RF15.
 type NoteStore interface {
 	Insert(
 		ctx context.Context,
@@ -24,13 +24,13 @@ type NoteStore interface {
 	) (ClinicalNote, error)
 }
 
-// PostgresStore persists clinical notes in expediente_db.
+// PostgresStore guarda las notas clínicas en expediente_db.
 //
-// It does not own a pool: every RF15 operation is run through TxManager so
-// the note operation and its RF18 audit event share one transaction.
+// No tiene un pool propio: toda operación de RF15 pasa por TxManager, para que
+// la nota y su evento de auditoría de RF18 compartan una transacción.
 type PostgresStore struct{}
 
-// NewPostgresStore returns the PostgreSQL RF15 store.
+// NewPostgresStore devuelve el almacén de RF15 sobre PostgreSQL.
 func NewPostgresStore() *PostgresStore {
 	return &PostgresStore{}
 }
@@ -61,9 +61,8 @@ func scanClinicalNote(row pgx.Row) (ClinicalNote, error) {
 	return note, err
 }
 
-// Insert creates one note. The unique constraint on clinic_id +
-// appointment_id prevents two notes from being attached to the same
-// appointment.
+// Insert crea una nota. La restricción única sobre clinic_id y appointment_id
+// impide que una misma cita tenga dos notas.
 func (s *PostgresStore) Insert(
 	ctx context.Context,
 	db database.DBTX,
@@ -94,9 +93,9 @@ func (s *PostgresStore) Insert(
 	return note, nil
 }
 
-// GetOwned returns a note only when it belongs to the authenticated clinic
-// and practitioner. Another clinic or practitioner is indistinguishable from
-// a nonexistent note.
+// GetOwned devuelve una nota solo si pertenece a la clínica y al profesional
+// autenticados. Una nota de otra clínica o de otro profesional no se distingue
+// de una que no existe.
 func (s *PostgresStore) GetOwned(
 	ctx context.Context,
 	db database.DBTX,

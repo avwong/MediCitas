@@ -10,11 +10,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// Checker reports whether a dependency is ready to serve traffic.
+// Checker indica si una dependencia está lista para atender tráfico.
 type Checker func(ctx context.Context) error
 
-// RegisterHealth adds /health (the process is alive) and /ready (its
-// dependencies answer). Neither requires authentication.
+// RegisterHealth agrega /health (el proceso está vivo) y /ready (sus
+// dependencias responden). Ninguna exige autenticación.
 func RegisterHealth(router *gin.Engine, ready Checker) {
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
@@ -33,8 +33,8 @@ func RegisterHealth(router *gin.Engine, ready Checker) {
 	})
 }
 
-// Serve runs the HTTP server until ctx is cancelled and then shuts it down
-// gracefully, letting in-flight requests finish.
+// Serve corre el servidor HTTP hasta que ctx se cancela y luego lo apaga de
+// forma ordenada, dejando terminar las peticiones en curso.
 func Serve(ctx context.Context, addr string, handler http.Handler, logger *slog.Logger) error {
 	server := &http.Server{
 		Addr:              addr,

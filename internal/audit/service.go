@@ -11,24 +11,24 @@ import (
 	"github.com/avwong/MediCitas/internal/platform/outbox"
 )
 
-// Service implements audit ingestion and RF19.
+// Service implementa la recepción de eventos de auditoría y RF19.
 type Service struct {
 	store Store
 }
 
-// NewService returns the audit use cases.
+// NewService devuelve los casos de uso de Auditoría.
 func NewService(store Store) *Service {
 	return &Service{store: store}
 }
 
-// Ingest validates and stores one producer event.
+// Ingest valida y guarda un evento de un productor.
 func (s *Service) Ingest(
 	ctx context.Context,
 	event outbox.Event,
 	source string,
 ) error {
-	// The authenticated service account, not the request body, determines
-	// the producer identity.
+	// Quién es el productor lo decide la cuenta de servicio autenticada, no el
+	// cuerpo de la petición.
 	event.SourceService = source
 
 	normalized, err := outbox.NormalizeEvent(event)
@@ -43,7 +43,7 @@ func (s *Service) Ingest(
 	return s.store.Insert(ctx, normalized)
 }
 
-// List implements RF19 for the authenticated clinic administrator.
+// List implementa RF19 para el administrador de clínica autenticado.
 func (s *Service) List(
 	ctx context.Context,
 	actor auth.Actor,

@@ -1,4 +1,6 @@
 #!/bin/sh
+# Verificación completa: pruebas unitarias, análisis estático y todas las
+# pruebas de integración contra la pila real de Compose. No borra volúmenes.
 set -eu
 
 export COMPOSE_PARALLEL_LIMIT="${COMPOSE_PARALLEL_LIMIT:-1}"

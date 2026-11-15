@@ -9,9 +9,9 @@ import (
 
 const actorContextKey = "auth.actor"
 
-// Authenticate requires a valid bearer token. A missing or invalid token gets
-// 401. A valid token that does not describe a usable MediCitas identity (no
-// role, several roles, clinic role without clinic) gets 403.
+// Authenticate exige un bearer token válido. Si falta o es inválido responde
+// 401. Si es válido pero no describe una identidad utilizable de MediCitas
+// (sin rol, con varios roles, o con rol de clínica sin clínica) responde 403.
 func (v *Verifier) Authenticate() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		rawToken, ok := bearerToken(c.GetHeader("Authorization"))
@@ -37,7 +37,7 @@ func (v *Verifier) Authenticate() gin.HandlerFunc {
 	}
 }
 
-// RequirePermission answers 403 unless the actor's role grants permission.
+// RequirePermission responde 403 si el rol del actor no concede el permiso.
 func RequirePermission(permission Permission) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		actor, ok := ActorFrom(c)
@@ -55,8 +55,9 @@ func RequirePermission(permission Permission) gin.HandlerFunc {
 	}
 }
 
-// RequireService answers 403 unless the caller is the service account of
-// clientID. It protects the internal routes that services call each other on.
+// RequireService responde 403 si quien llama no es la cuenta de servicio de
+// clientID. Protege las rutas internas con las que los servicios se llaman
+// entre sí.
 func RequireService(clientID string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		actor, ok := ActorFrom(c)
@@ -74,7 +75,7 @@ func RequireService(clientID string) gin.HandlerFunc {
 	}
 }
 
-// ActorFrom returns the actor set by Authenticate.
+// ActorFrom devuelve el actor que dejó Authenticate en el contexto.
 func ActorFrom(c *gin.Context) (Actor, bool) {
 	value, exists := c.Get(actorContextKey)
 	if !exists {
@@ -82,6 +83,17 @@ func ActorFrom(c *gin.Context) (Actor, bool) {
 	}
 
 	actor, ok := value.(Actor)
+	return actor, ok
+}
+
+// CurrentActor devuelve el actor de la petición y responde 401 si no hay
+// ninguno. Los handlers lo usan para no repetir esa comprobación.
+func CurrentActor(c *gin.Context) (Actor, bool) {
+	actor, ok := ActorFrom(c)
+	if !ok {
+		unauthorized(c)
+	}
+
 	return actor, ok
 }
 

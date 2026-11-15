@@ -1,43 +1,43 @@
 package auth
 
-// Permission is a domain permission. Each one corresponds to a row of the
-// permission matrix in the assignment, so the mapping below can be checked
-// against it line by line.
+// Permission es un permiso de dominio. Cada uno corresponde a una fila de la
+// matriz de permisos del enunciado, así que el mapa de abajo se puede revisar
+// contra ella línea por línea.
 type Permission string
 
 const (
-	// RF1: create clinics.
+	// RF1: crear clínicas.
 	PermClinicsManage Permission = "clinics:manage"
-	// RF2: manage the users of a clinic.
+	// RF2: administrar los usuarios de una clínica.
 	PermUsersManage Permission = "users:manage"
-	// RF3, RF4: manage services and practitioners.
+	// RF3 y RF4: administrar servicios y profesionales.
 	PermCatalogManage Permission = "catalog:manage"
-	// Documented extension of the matrix: read the catalog. Reception and
-	// practitioners need it to book and to consult availability.
+	// Extensión documentada de la matriz: leer el catálogo. Recepción y los
+	// profesionales lo necesitan para reservar y consultar la disponibilidad.
 	PermCatalogRead Permission = "catalog:read"
-	// RF5, RF6: schedules and blocks. Practitioners only manage their own;
-	// that ownership rule is enforced inside the service.
+	// RF5 y RF6: horarios y bloqueos. El profesional solo administra los
+	// suyos; esa regla se aplica dentro del servicio.
 	PermScheduleManage Permission = "schedule:manage"
-	// RF7, RF8: availability.
+	// RF7 y RF8: disponibilidad.
 	PermAvailabilityRead Permission = "availability:read"
-	// RF9 to RF11: book, reschedule and cancel.
+	// RF9 a RF11: reservar, reprogramar y cancelar.
 	PermAppointmentsBook Permission = "appointments:book"
-	// RF12: register the outcome.
+	// RF12: registrar el resultado de la cita.
 	PermAppointmentsOutcome Permission = "appointments:outcome"
-	// RF14: create and update patients.
+	// RF14: crear y actualizar pacientes.
 	PermPatientsWrite Permission = "patients:write"
-	// RF14: read patients (practitioners have read-only access).
+	// RF14: leer pacientes (el profesional solo tiene lectura).
 	PermPatientsRead Permission = "patients:read"
-	// RF15: clinical notes, only for the practitioner's own appointments
-	// (ownership enforced inside the service).
+	// RF15: notas clínicas, solo de las citas propias del profesional (la
+	// pertenencia se comprueba dentro del servicio).
 	PermNotesOwn Permission = "notes:own"
-	// RF16: patient history.
+	// RF16: historial del paciente.
 	PermHistoryRead Permission = "history:read"
-	// RF19: audit log.
+	// RF19: bitácora de auditoría.
 	PermAuditRead Permission = "audit:read"
-	// RF20 (not in the matrix; documented): daily agenda.
+	// RF20 (no está en la matriz; documentado): agenda del día.
 	PermAgendaRead Permission = "agenda:read"
-	// RF21 (not in the matrix; documented): appointment counts by status.
+	// RF21 (no está en la matriz; documentado): conteo de citas por estado.
 	PermReportsRead Permission = "reports:read"
 )
 
@@ -91,7 +91,7 @@ func set(permissions ...Permission) map[Permission]struct{} {
 	return result
 }
 
-// RoleHasPermission reports whether role grants permission.
+// RoleHasPermission indica si el rol concede el permiso.
 func RoleHasPermission(role Role, permission Permission) bool {
 	_, ok := rolePermissions[role][permission]
 	return ok

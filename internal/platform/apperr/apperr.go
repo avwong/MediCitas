@@ -1,24 +1,27 @@
-// Package apperr defines the error kinds shared by every service. Each kind
-// maps to one HTTP status in package httpx.
+// Package apperr define los tipos de error que comparten todos los servicios.
+// El paquete httpx traduce cada tipo a un código HTTP.
 package apperr
 
 import "errors"
 
 var (
-	// ErrInvalidInput means the request is malformed or breaks a rule.
+	// ErrInvalidInput indica que la petición está mal formada o incumple una
+	// regla.
 	ErrInvalidInput = errors.New("invalid input")
-	// ErrNotFound means the resource does not exist for the caller's clinic.
+	// ErrNotFound indica que el recurso no existe en la clínica de quien
+	// llama.
 	ErrNotFound = errors.New("resource not found")
-	// ErrConflict means the request collides with the current state.
+	// ErrConflict indica que la petición choca con el estado actual.
 	ErrConflict = errors.New("resource conflict")
-	// ErrForbidden means the caller may not perform the operation.
+	// ErrForbidden indica que quien llama no puede realizar la operación.
 	ErrForbidden = errors.New("forbidden")
-	// ErrUnavailable means a dependency (another service, Keycloak) failed.
+	// ErrUnavailable indica que falló una dependencia (otro servicio o
+	// Keycloak).
 	ErrUnavailable = errors.New("dependency unavailable")
 )
 
-// Error is an error of a known kind with a message that is safe to show to
-// the client.
+// Error es un error de un tipo conocido con un mensaje que se puede mostrar al
+// cliente sin riesgo.
 type Error struct {
 	Kind    error
 	Message string
@@ -28,27 +31,27 @@ func (e *Error) Error() string { return e.Message }
 
 func (e *Error) Unwrap() error { return e.Kind }
 
-// Invalid returns an ErrInvalidInput with a client-facing message.
+// Invalid devuelve un ErrInvalidInput con un mensaje para el cliente.
 func Invalid(message string) error {
 	return &Error{Kind: ErrInvalidInput, Message: message}
 }
 
-// NotFound returns an ErrNotFound with a client-facing message.
+// NotFound devuelve un ErrNotFound con un mensaje para el cliente.
 func NotFound(message string) error {
 	return &Error{Kind: ErrNotFound, Message: message}
 }
 
-// Conflict returns an ErrConflict with a client-facing message.
+// Conflict devuelve un ErrConflict con un mensaje para el cliente.
 func Conflict(message string) error {
 	return &Error{Kind: ErrConflict, Message: message}
 }
 
-// Forbidden returns an ErrForbidden with a client-facing message.
+// Forbidden devuelve un ErrForbidden con un mensaje para el cliente.
 func Forbidden(message string) error {
 	return &Error{Kind: ErrForbidden, Message: message}
 }
 
-// PublicMessage returns the client-facing message of err, if it has one.
+// PublicMessage devuelve el mensaje para el cliente de err, si lo tiene.
 func PublicMessage(err error) (string, bool) {
 	var appErr *Error
 	if errors.As(err, &appErr) {

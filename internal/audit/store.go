@@ -9,20 +9,20 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// PostgresStore stores the central immutable audit log.
+// PostgresStore guarda la bitácora central inmutable.
 type PostgresStore struct {
 	pool *pgxpool.Pool
 }
 
-// NewPostgresStore returns the audit store.
+// NewPostgresStore devuelve el almacén de Auditoría.
 func NewPostgresStore(pool *pgxpool.Pool) *PostgresStore {
 	return &PostgresStore{pool: pool}
 }
 
-// Insert stores an event idempotently.
+// Insert guarda un evento de forma idempotente.
 //
-// Redelivery is expected with an at-least-once relay, so event_id is the
-// idempotency key.
+// Con un relay de entrega "al menos una vez" los reenvíos son normales, así
+// que event_id es la llave de idempotencia.
 func (s *PostgresStore) Insert(
 	ctx context.Context,
 	event outbox.Event,
@@ -58,9 +58,10 @@ func (s *PostgresStore) Insert(
 	return database.MapError(err)
 }
 
-// List returns only entries belonging to clinicID.
+// List devuelve solo los registros de clinicID.
 //
-// The SQL shape is fixed and every user-controlled value is parameterized.
+// La forma de la consulta es fija y todo valor que controla el usuario va como
+// parámetro.
 func (s *PostgresStore) List(
 	ctx context.Context,
 	clinicID string,

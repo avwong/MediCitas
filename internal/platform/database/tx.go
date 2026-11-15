@@ -11,47 +11,48 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Tx is a transaction that can register work to run only after it commits,
-// such as invalidating a cache entry.
+// Tx es una transacción que permite registrar trabajo que solo debe correr
+// después del commit, como invalidar una entrada de caché.
 type Tx struct {
 	pgx.Tx
 	afterCommit []func(context.Context)
 }
 
-// AfterCommit registers fn to run once the transaction has committed. It
-// never runs if the transaction rolls back.
+// AfterCommit registra fn para que corra cuando la transacción haya hecho
+// commit. Nunca corre si la transacción se revierte.
 func (t *Tx) AfterCommit(fn func(context.Context)) {
 	t.afterCommit = append(t.afterCommit, fn)
 }
 
-// TxOptions configures a transaction.
+// TxOptions configura una transacción.
 type TxOptions struct {
-	// IsoLevel defaults to READ COMMITTED, PostgreSQL's default. It is set
-	// explicitly so the level in use is always visible in the code.
+	// IsoLevel es READ COMMITTED si no se indica, igual que en PostgreSQL. Se
+	// fija de forma explícita para que el nivel en uso siempre se vea en el
+	// código.
 	IsoLevel pgx.TxIsoLevel
 	ReadOnly bool
-	// ClinicID, when set, is exposed to the database as the app.clinic_id
-	// setting for the duration of the transaction only (set_config with
-	// is_local = true), so a pooled connection never carries a clinic into
-	// another request. Row-level security policies can read it.
+	// ClinicID, si se indica, queda disponible en la base como el ajuste
+	// app.clinic_id solo mientras dura la transacción (set_config con is_local
+	// = true), de modo que una conexión del pool nunca arrastre la clínica a
+	// otra petición. Las políticas de RLS pueden leerlo.
 	ClinicID string
 }
 
-// TxManager runs transactions and retries the ones PostgreSQL aborts because
-// of serialization failures or deadlocks.
+// TxManager ejecuta transacciones y reintenta las que PostgreSQL aborta por
+// fallos de serialización o deadlocks.
 type TxManager struct {
 	pool        *pgxpool.Pool
 	maxAttempts int
 }
 
-// NewTxManager returns a manager that makes up to three attempts.
+// NewTxManager devuelve un manager que hace hasta tres intentos.
 func NewTxManager(pool *pgxpool.Pool) *TxManager {
 	return &TxManager{pool: pool, maxAttempts: 3}
 }
 
-// Run executes fn inside a transaction. fn must be safe to run again: it is
-// retried when PostgreSQL reports a serialization failure (40001) or a
-// deadlock (40P01).
+// Run ejecuta fn dentro de una transacción. fn debe poder ejecutarse de nuevo
+// sin efectos indeseados: se reintenta cuando PostgreSQL reporta un fallo de
+// serialización (40001) o un deadlock (40P01).
 func (m *TxManager) Run(
 	ctx context.Context,
 	opts TxOptions,
@@ -135,7 +136,7 @@ func (m *TxManager) runOnce(
 	return nil
 }
 
-// IsRetryable reports whether err is a serialization failure or a deadlock.
+// IsRetryable indica si err es un fallo de serialización o un deadlock.
 func IsRetryable(err error) bool {
 	var pgErr *pgconn.PgError
 	if !errors.As(err, &pgErr) {

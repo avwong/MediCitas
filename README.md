@@ -38,6 +38,8 @@ docker compose down -v
 docker compose up --build
 ~~~
 
+Esto también es lo más simple si, después de actualizar el repositorio, una migración o la semilla fallan sobre un volumen creado con una versión anterior del esquema.
+
 ## Autenticación
 
 Los tokens se piden a Keycloak con el client público `medicitas-cli`:
@@ -92,10 +94,10 @@ Todas las rutas reciben y devuelven JSON. Los errores tienen la forma `{"error":
 | `POST /api/v1/users` | `clinic_admin` | `username`, `email`, `first_name`, `last_name`, `password`, `role` | usuario | 201, 400, 409, 503 |
 | `GET /api/v1/users` | `clinic_admin` | — | `{items: [usuario]}` | 200 |
 | `GET /api/v1/users/{id}` | `clinic_admin` | — | usuario | 200, 404 |
-| `PATCH /api/v1/users/{id}/role` | `clinic_admin` | `role` | usuario | 200, 400, 404, 409 |
-| `DELETE /api/v1/users/{id}` | `clinic_admin` | — | — (baja lógica) | 204, 404, 409 |
+| `PATCH /api/v1/users/{id}/role` | `clinic_admin` | `role` | usuario | 200, 400, 404, 409, 503 |
+| `DELETE /api/v1/users/{id}` | `clinic_admin` | — | — (baja lógica) | 204, 404, 409, 503 |
 
-`role` acepta `clinic_admin`, `reception` o `practitioner`. El alta de una clínica usa una saga pequeña para mantener coordinados Tenancy, Keycloak y la proyección de Agenda.
+`role` acepta `clinic_admin`, `reception` o `practitioner`. Cuando un usuario deja de ser `practitioner`, por cambio de rol o por baja, Tenancy desactiva a su profesional en Agenda, y lo reactiva si vuelve a tener ese rol. Si Agenda no responde, la operación devuelve 503 y se puede repetir. El alta de una clínica usa una saga pequeña para mantener coordinados Tenancy, Keycloak y la proyección de Agenda.
 
 ### Agenda
 
@@ -148,7 +150,7 @@ RF15 está implementado como dominio independiente y usa `notes:own`, permiso ex
 | `POST /api/v1/clinical-notes` | `practitioner` | `appointment_id`, `content` | nota clínica | 201, 400, 404, 409, 503 |
 | `GET /api/v1/clinical-notes/{id}` | `practitioner` | — | nota clínica propia | 200, 400, 404 |
 
-La clínica y el profesional nunca se reciben en el body. Se toman del token autenticado. El paciente se obtiene del contexto verificado de la cita.
+La clínica y el profesional nunca se reciben en el cuerpo de la petición. Se toman del token autenticado. El paciente se obtiene del contexto verificado de la cita.
 
 La escritura solo se acepta para una cita `attended` que haya sido atendida por ese mismo profesional y que todavía no tenga nota.
 
@@ -156,7 +158,7 @@ La lectura se filtra simultáneamente por clínica, id de nota y subject del pro
 
 La creación y cada lectura escriben respectivamente `clinical_note.write` y `clinical_note.read` en `audit_outbox` dentro de la misma transacción de `expediente_db`.
 
-El extremo de Expediente está listo; la creación end-to-end quedará habilitada cuando Agenda implemente su parte del contrato descrito en «Rutas internas».
+El extremo de Expediente está listo; la creación de punta a punta quedará habilitada cuando Agenda implemente su parte del contrato descrito en «Rutas internas».
 
 ### Auditoría
 
@@ -170,7 +172,7 @@ La clínica del filtro nunca viene de la petición: se deriva del `clinic_id` fi
 
 Los eventos se entregan de forma asíncrona desde los outboxes de los servicios productores. La entrega es al menos una vez y Audit deduplica por `event_id`.
 
-`audit_log` y los `audit_outbox` están protegidos contra UPDATE y DELETE en PostgreSQL. Las identidades runtime tampoco reciben permisos de mutación innecesarios sobre esas tablas.
+`audit_log` y los `audit_outbox` están protegidos contra UPDATE y DELETE en PostgreSQL. Las identidades con las que corren los servicios tampoco reciben permisos de mutación innecesarios sobre esas tablas.
 
 ### Rutas internas
 
@@ -180,14 +182,15 @@ Agenda actualmente expone:
 
 - `PUT /internal/clinics/{id}`
 - `DELETE /internal/clinics/{id}`
+- `PUT /internal/practitioners/by-user/{user_id}/active`, con el cuerpo `{"active": true|false}`
 
-Tenancy utiliza esas rutas con su cuenta de servicio para aprovisionar clínicas.
+Tenancy utiliza esas rutas con su cuenta de servicio: las dos primeras para aprovisionar clínicas y la tercera para que el profesional de Agenda refleje el estado de su usuario. Es idempotente y responde 204 aunque el usuario no tenga profesional registrado.
 
 Expediente queda preparado para consumir, cuando el módulo de citas exista:
 
 - `GET /internal/appointments/{id}/clinical-note-context`
 
-Esa llamada reenviará **el token original del profesional**, no un `clinic_id` en headers ni parámetros. Agenda deberá validar el token y devolver únicamente el contexto de una cita visible para esa clínica.
+Esa llamada reenviará **el token original del profesional**, no un `clinic_id` en encabezados ni parámetros. Agenda deberá validar el token y devolver únicamente el contexto de una cita visible para esa clínica.
 
 Respuesta esperada, con el estado `attended` para una cita atendida:
 
@@ -225,6 +228,8 @@ Audit recibe eventos de sus productores mediante:
 Agenda y Expediente utilizan cuentas de servicio independientes y OAuth 2.0 client credentials para ese relay.
 
 ## Pruebas
+
+Las pruebas unitarias y el análisis estático necesitan Go 1.27 o superior instalado; las de integración solo necesitan Docker.
 
 Verificación completa con un solo comando. Ejecuta las pruebas unitarias, el análisis estático y todas las pruebas de integración contra la pila real, y no borra los volúmenes:
 
@@ -272,8 +277,8 @@ docs/                    documento de diseño y documento de pruebas
 | Implementado | Pendiente / integración futura |
 |---|---|
 | RF1, RF2, RF3, RF4, RF14, RF17 y RF19 | RF5–RF13, RF16, RF20 y RF21 |
-| Núcleo RF15: BD, autorización, API, aislamiento lógico, auditoría read/write y contrato hacia Agenda | Endpoint de contexto de cita en Agenda para completar RF15 end-to-end |
+| Núcleo RF15: BD, autorización, API, aislamiento lógico, auditoría de lectura y escritura y contrato hacia Agenda | Ruta de contexto de cita en Agenda para completar RF15 de punta a punta |
 | Infraestructura RF18: outbox transaccional, relay, bitácora central idempotente e inmutable, y productor de contacto de pacientes en Agenda, con pruebas de integración | — |
 | Bases por servicio, owner/app/readonly y aislamiento de credenciales | RLS y roles de dominio alineados con la matriz, según el módulo del equipo |
-| JWT/OIDC, permisos, signed `clinic_id`, saga RF1 y clientes service-to-service | Disponibilidad, concurrencia de citas, caché Redis y pruebas de carrera |
-| Tests reales de privilegios, invariantes de auditoría, JWT/proxy, aislamiento multi-tenant y entrega de relays | Suite de integración de los RF restantes de Agenda |
+| JWT/OIDC, permisos, `clinic_id` firmado, saga RF1 y clientes entre servicios | Disponibilidad, concurrencia de citas, caché Redis y pruebas de carrera |
+| Pruebas reales de privilegios, invariantes de auditoría, JWT/proxy, aislamiento multi-tenant y entrega de relays | Suite de integración de los RF restantes de Agenda |

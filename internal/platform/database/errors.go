@@ -9,8 +9,9 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// MapError translates PostgreSQL errors into domain errors. The original
-// error stays wrapped for the logs; clients only see the domain kind.
+// MapError traduce los errores de PostgreSQL a errores de dominio. El error
+// original queda envuelto para los logs; el cliente solo ve el tipo de
+// dominio.
 func MapError(err error) error {
 	if err == nil {
 		return nil
@@ -31,12 +32,13 @@ func MapError(err error) error {
 	case "23P01": // exclusion_violation
 		return fmt.Errorf("%w: %w", apperr.ErrConflict, err)
 	case "23503": // foreign_key_violation
-		// A reference to a row that does not exist in the caller's clinic.
-		// It is reported as "not found" so the response does not reveal
-		// whether the row exists in another clinic.
+		// Una referencia a una fila que no existe en la clínica de quien
+		// llama. Se reporta como "no encontrado" para no revelar si la fila
+		// existe en otra clínica.
 		return fmt.Errorf("%w: %w", apperr.ErrNotFound, err)
 	case "23514", "23502", "22P02", "22001", "22007", "22008":
-		// check, not null, invalid text, value too long, invalid datetime.
+		// check, not null, texto inválido, valor demasiado largo y fecha
+		// inválida.
 		return fmt.Errorf("%w: %w", apperr.ErrInvalidInput, err)
 	default:
 		return err

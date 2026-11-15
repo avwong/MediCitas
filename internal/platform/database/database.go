@@ -1,5 +1,6 @@
-// Package database opens PostgreSQL connection pools, runs transactions with
-// an explicit isolation level and maps PostgreSQL errors to domain errors.
+// Package database abre los pools de conexiones a PostgreSQL, ejecuta
+// transacciones con un nivel de aislamiento explícito y traduce los errores de
+// PostgreSQL a errores de dominio.
 package database
 
 import (
@@ -16,8 +17,8 @@ import (
 
 const connectTimeout = 5 * time.Second
 
-// Config identifies one service database and the least-privilege role the
-// service connects with.
+// Config identifica la base de datos de un servicio y el rol de menor
+// privilegio con el que se conecta.
 type Config struct {
 	Host     string
 	Port     string
@@ -26,7 +27,7 @@ type Config struct {
 	Password string
 }
 
-// ConfigFromEnv reads DB_HOST, DB_PORT, DB_NAME, DB_USER and DB_PASSWORD.
+// ConfigFromEnv lee DB_HOST, DB_PORT, DB_NAME, DB_USER y DB_PASSWORD.
 func ConfigFromEnv(env *config.Loader) Config {
 	return Config{
 		Host:     env.Required("DB_HOST"),
@@ -37,15 +38,15 @@ func ConfigFromEnv(env *config.Loader) Config {
 	}
 }
 
-// DBTX is satisfied by *pgxpool.Pool, pgx.Tx and *Tx, so repositories work
-// the same inside and outside a transaction.
+// DBTX lo cumplen *pgxpool.Pool, pgx.Tx y *Tx, así que los repositorios
+// funcionan igual dentro y fuera de una transacción.
 type DBTX interface {
 	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
-// Open connects to PostgreSQL and verifies the connection.
+// Open se conecta a PostgreSQL y comprueba la conexión.
 func Open(ctx context.Context, cfg Config, applicationName string) (*pgxpool.Pool, error) {
 	dsn := (&url.URL{
 		Scheme:   "postgres",

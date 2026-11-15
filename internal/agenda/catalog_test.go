@@ -3,6 +3,7 @@ package agenda
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/avwong/MediCitas/internal/platform/apperr"
@@ -15,13 +16,23 @@ const (
 	userID  = "44444444-aaaa-4444-8444-444444444444"
 )
 
-// recordingStore only records calls; the SQL is exercised by integration
-// tests against the real database.
+// recordingStore solo registra las llamadas; el SQL se ejercita en las pruebas
+// de integración contra la base real.
 type recordingStore struct {
 	CatalogStore
 	createdServices      []NewMedicalService
 	createdPractitioners []NewPractitioner
 	serviceIDs           []string
+	activeChanges        map[string]bool
+}
+
+func (s *recordingStore) SetPractitionerActiveByUser(_ context.Context, userID string, active bool) error {
+	if s.activeChanges == nil {
+		s.activeChanges = map[string]bool{}
+	}
+
+	s.activeChanges[userID] = active
+	return nil
 }
 
 func (s *recordingStore) CreateService(_ context.Context, clinicID string, in NewMedicalService) (MedicalService, error) {
@@ -176,7 +187,30 @@ func TestMalformedIDsAreRejectedBeforeTheStore(t *testing.T) {
 		t.Errorf("GetPractitioner: error = %v, want invalid input", err)
 	}
 
-	if err := catalog.ProvisionClinic(context.Background(), clinicA, "Mars/Olympus"); !errors.Is(err, apperr.ErrInvalidInput) {
-		t.Errorf("ProvisionClinic: error = %v, want invalid input for an unknown time zone", err)
+	for _, timezone := range []string{"Mars/Olympus", "", "Local"} {
+		if err := catalog.ProvisionClinic(context.Background(), clinicA, timezone); !errors.Is(err, apperr.ErrInvalidInput) {
+			t.Errorf("ProvisionClinic(%q): error = %v, want invalid input", timezone, err)
+		}
+	}
+}
+
+func TestSetPractitionerActiveValidatesAndNormalizesTheUser(t *testing.T) {
+	store := &recordingStore{}
+	catalog := NewCatalog(store, fakeDirectory{})
+
+	if err := catalog.SetPractitionerActive(context.Background(), "abc", false); !errors.Is(err, apperr.ErrInvalidInput) {
+		t.Errorf("error = %v, want invalid input for a malformed user id", err)
+	}
+
+	if len(store.activeChanges) != 0 {
+		t.Fatal("a malformed user id must not reach the store")
+	}
+
+	if err := catalog.SetPractitionerActive(context.Background(), strings.ToUpper(userID), false); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if active, changed := store.activeChanges[userID]; !changed || active {
+		t.Errorf("changes = %v, want %s deactivated", store.activeChanges, userID)
 	}
 }

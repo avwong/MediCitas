@@ -8,7 +8,8 @@ import (
 	"github.com/avwong/MediCitas/internal/platform/ids"
 )
 
-// Action identifies one sensitive operation required by RF18.
+// Action identifica una de las operaciones sensibles que RF18 obliga a
+// auditar.
 type Action string
 
 const (
@@ -32,9 +33,9 @@ var actionSource = map[Action]string{
 	ActionClinicalNoteWrite:   "expediente",
 }
 
-// Event is the canonical audit event exchanged by producers and the audit
-// service. It intentionally contains identifiers and metadata, never the
-// sensitive clinical note or contact value itself.
+// Event es el evento de auditoría canónico que intercambian los productores y
+// el servicio de Auditoría. A propósito lleva solo identificadores y
+// metadatos, nunca el contenido de la nota clínica ni los valores de contacto.
 type Event struct {
 	EventID       string    `json:"event_id"`
 	ClinicID      string    `json:"clinic_id"`
@@ -48,7 +49,7 @@ type Event struct {
 	SourceService string    `json:"source_service"`
 }
 
-// NormalizeEvent validates an event and returns its canonical representation.
+// NormalizeEvent valida un evento y devuelve su representación canónica.
 func NormalizeEvent(event Event) (Event, error) {
 	var ok bool
 
@@ -84,7 +85,8 @@ func NormalizeEvent(event Event) (Event, error) {
 		return Event{}, fmt.Errorf("invalid audit action %q", event.Action)
 	}
 
-	// The action determines the resource type. Producers cannot forge it.
+	// La acción determina el tipo de recurso, así que un productor no puede
+	// falsificarlo.
 	event.ResourceType = expectedResource
 
 	event.SourceService = strings.ToLower(strings.TrimSpace(event.SourceService))

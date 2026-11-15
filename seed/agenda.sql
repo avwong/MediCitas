@@ -1,10 +1,12 @@
--- Datos de ejemplo para agenda_db
--- Son coherentes con seed/tenancy.sql: las clínicas y los profesionales coinciden con sus usuarios
+-- Datos de ejemplo para agenda_db.
 --
--- Hay tres clínicas, con tres profesionales cada una
--- Cada profesional atiende todos los servicios de su especialidad
--- Todos los ids son fijos, para que las pruebas y otras semillas puedan referenciarlos
--- ON CONFLICT DO NOTHING hace que la semilla se pueda ejecutar varias veces sin fallar
+-- Son coherentes con seed/tenancy.sql: las clínicas y los profesionales
+-- coinciden con sus usuarios. Hay tres clínicas con tres profesionales cada
+-- una, y cada profesional atiende todos los servicios de su especialidad.
+--
+-- Todos los ids son fijos, para que las pruebas y otras semillas puedan
+-- referenciarlos. ON CONFLICT DO NOTHING permite ejecutar la semilla varias
+-- veces sin que falle.
 
 INSERT INTO clinics (id, timezone)
 VALUES
@@ -13,8 +15,8 @@ VALUES
     ('cccccccc-cccc-4ccc-8ccc-cccccccccccc', 'America/Bogota')
 ON CONFLICT (id) DO NOTHING;
 
--- Especialidades
--- El prefijo del id indica la clínica: e1e1 Demo, e2e2 Norte, e3e3 Sur
+-- Especialidades. El prefijo del id indica la clínica: e1e1 Demo, e2e2 Norte,
+-- e3e3 Sur.
 INSERT INTO specialties (id, clinic_id, name)
 VALUES
     -- Clínica Demo
@@ -42,9 +44,9 @@ VALUES
      'Odontología')
 ON CONFLICT (id) DO NOTHING;
 
--- Servicios
--- Las duraciones varían entre 20 y 45 minutos para probar la disponibilidad
--- El prefijo del id indica la clínica: d1d1 Demo, d2d2 Norte, d3d3 Sur
+-- Servicios. Las duraciones varían entre 20 y 45 minutos para probar la
+-- disponibilidad. El prefijo del id indica la clínica: d1d1 Demo, d2d2 Norte,
+-- d3d3 Sur.
 INSERT INTO services (id, clinic_id, name, duration_minutes, specialty_id)
 VALUES
     -- Clínica Demo
@@ -86,9 +88,9 @@ VALUES
      'Limpieza dental', 30, 'e3e3e3e3-0000-4000-8000-000000000003')
 ON CONFLICT (id) DO NOTHING;
 
--- Profesionales
--- user_id y user_subject apuntan al usuario correspondiente en Tenancy y en Keycloak
--- El prefijo del id indica la clínica: c1c1 Demo, c2c2 Norte, c3c3 Sur
+-- Profesionales. user_id y user_subject apuntan al usuario correspondiente en
+-- Tenancy y en Keycloak. El prefijo del id indica la clínica: c1c1 Demo, c2c2
+-- Norte, c3c3 Sur.
 INSERT INTO practitioners (id, clinic_id, user_id, user_subject, display_name, specialty_id)
 VALUES
     -- Clínica Demo
@@ -125,8 +127,7 @@ VALUES
      'Dra. Valentina Cruz', 'e3e3e3e3-0000-4000-8000-000000000003')
 ON CONFLICT (id) DO NOTHING;
 
--- Servicios que atiende cada profesional
--- Cada uno atiende todos los servicios de su especialidad
+-- Servicios que atiende cada profesional: todos los de su especialidad.
 INSERT INTO practitioner_services (clinic_id, practitioner_id, service_id)
 VALUES
     -- Clínica Demo
@@ -168,10 +169,10 @@ VALUES
      'd3d3d3d3-0000-4000-8000-000000000005')
 ON CONFLICT DO NOTHING;
 
--- Pacientes de ejemplo (RF14)
--- Datos ficticios: las cédulas, teléfonos y correos no corresponden a personas reales
--- Los correos usan example.com, un dominio reservado para ejemplos
--- Varios pacientes omiten algún dato de contacto, porque el contacto es opcional
+-- Pacientes de ejemplo (RF14). Son datos ficticios: las cédulas, los teléfonos
+-- y los correos no corresponden a personas reales, y los correos usan
+-- example.com, un dominio reservado para ejemplos. Varios pacientes omiten
+-- algún dato de contacto, porque el contacto es opcional.
 INSERT INTO patients (id, clinic_id, identification, first_name, last_name, birth_date, phone, email, address)
 VALUES
     -- Clínica Demo
@@ -194,9 +195,8 @@ VALUES
      '4-0210-0654', 'Daniel Esteban', 'Vega Mora', '1995-12-25',
      NULL, NULL, NULL),
 
-    -- Clínica Norte
-    -- La identificación 1-0801-0123 también existe en Demo
-    -- Es válido: la identificación solo es única dentro de cada clínica
+    -- Clínica Norte. La identificación 1-0801-0123 también existe en Demo, y
+    -- es válido: la identificación solo es única dentro de cada clínica.
     ('b2b2b2b2-0000-4000-8000-000000000001', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
      '1-0801-0123', 'María Fernanda', 'Rojas Vargas', '1988-03-14',
      '+506 8801-2345', 'maria.rojas@example.com', 'San José, Barrio Escalante'),

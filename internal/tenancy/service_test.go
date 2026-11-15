@@ -13,7 +13,7 @@ import (
 
 const testClinicID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 
-// fakeStore records what the saga did to the database.
+// fakeStore registra lo que la saga hizo en la base de datos.
 type fakeStore struct {
 	inserted       []Clinic
 	deletedClinics []string
@@ -124,6 +124,21 @@ type fakeAgenda struct {
 	provisionErr  error
 	provisioned   []string
 	deprovisioned []string
+	activeErr     error
+	activeChanges map[string]bool
+}
+
+func (f *fakeAgenda) SetPractitionerActive(_ context.Context, userID string, active bool) error {
+	if f.activeErr != nil {
+		return f.activeErr
+	}
+
+	if f.activeChanges == nil {
+		f.activeChanges = map[string]bool{}
+	}
+
+	f.activeChanges[userID] = active
+	return nil
 }
 
 func (f *fakeAgenda) ProvisionClinic(_ context.Context, clinicID, _ string) error {
@@ -351,5 +366,110 @@ func TestUserOfAnotherClinicIsNotFound(t *testing.T) {
 
 	if len(idp.roles) != 0 {
 		t.Error("no role may change in Keycloak for a user of another clinic")
+	}
+}
+
+const staffUserID = "11111111-2222-4333-8444-555555555555"
+
+var testAdmin = auth.Actor{Subject: "admin", ClinicID: testClinicID, Role: auth.RoleClinicAdmin}
+
+func addStaffUser(store *fakeStore, role auth.Role) {
+	store.users[staffUserID] = User{
+		ID:       staffUserID,
+		ClinicID: testClinicID,
+		Subject:  "staff-subject",
+		Role:     role,
+		Active:   true,
+	}
+}
+
+func TestRoleChangeKeepsThePractitionerInAgendaInSync(t *testing.T) {
+	cases := []struct {
+		name       string
+		from, to   auth.Role
+		wantChange bool
+		wantActive bool
+	}{
+		{"deja de ser profesional", auth.RolePractitioner, auth.RoleReception, true, false},
+		{"vuelve a ser profesional", auth.RoleReception, auth.RolePractitioner, true, true},
+		{"nunca fue profesional", auth.RoleReception, auth.RoleClinicAdmin, false, false},
+		{"sigue siendo profesional", auth.RolePractitioner, auth.RolePractitioner, false, false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			service, store, _, agenda := newTestService()
+			addStaffUser(store, tc.from)
+
+			if _, err := service.UpdateUserRole(context.Background(), testAdmin, staffUserID, string(tc.to)); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			active, changed := agenda.activeChanges[staffUserID]
+			if changed != tc.wantChange || active != tc.wantActive {
+				t.Errorf("agenda change = (%v, active %v), want (%v, active %v)", changed, active, tc.wantChange, tc.wantActive)
+			}
+		})
+	}
+}
+
+// Si Agenda no responde, la copia local conserva el rol anterior, de modo que
+// repetir la petición vuelve a intentar el aviso a Agenda.
+func TestRoleChangeCanBeRetriedWhenAgendaFails(t *testing.T) {
+	service, store, _, agenda := newTestService()
+	addStaffUser(store, auth.RolePractitioner)
+	agenda.activeErr = apperr.ErrUnavailable
+
+	_, err := service.UpdateUserRole(context.Background(), testAdmin, staffUserID, "reception")
+	if !errors.Is(err, apperr.ErrUnavailable) {
+		t.Fatalf("error = %v, want unavailable", err)
+	}
+
+	if store.users[staffUserID].Role != auth.RolePractitioner {
+		t.Fatal("the local role must not change until agenda has been updated")
+	}
+
+	agenda.activeErr = nil
+
+	if _, err := service.UpdateUserRole(context.Background(), testAdmin, staffUserID, "reception"); err != nil {
+		t.Fatalf("retry: unexpected error: %v", err)
+	}
+
+	if active, changed := agenda.activeChanges[staffUserID]; !changed || active {
+		t.Error("the retry must deactivate the practitioner in agenda")
+	}
+}
+
+func TestDeactivatingAPractitionerDeactivatesItInAgenda(t *testing.T) {
+	service, store, idp, agenda := newTestService()
+	addStaffUser(store, auth.RolePractitioner)
+
+	if err := service.DeactivateUser(context.Background(), testAdmin, staffUserID); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(idp.disabled) != 1 {
+		t.Error("the user must be disabled in Keycloak")
+	}
+
+	if active, changed := agenda.activeChanges[staffUserID]; !changed || active {
+		t.Error("the practitioner must be deactivated in agenda")
+	}
+
+	if store.users[staffUserID].Active {
+		t.Error("the user must be inactive locally")
+	}
+}
+
+func TestDeactivatingOtherRolesDoesNotCallAgenda(t *testing.T) {
+	service, store, _, agenda := newTestService()
+	addStaffUser(store, auth.RoleReception)
+
+	if err := service.DeactivateUser(context.Background(), testAdmin, staffUserID); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(agenda.activeChanges) != 0 {
+		t.Error("agenda must not be called for a user that is not a practitioner")
 	}
 }

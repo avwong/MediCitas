@@ -8,9 +8,9 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// patientColumns son las columnas de un paciente completo
-// La fecha se lee como texto AAAA-MM-DD para no depender de la zona horaria
-// los datos de contacto sin valor (NULL) se devuelven como texto vacío
+// patientColumns son las columnas de un paciente completo. La fecha se lee
+// como texto AAAA-MM-DD para no depender de la zona horaria, y los datos de
+// contacto sin valor (NULL) se devuelven como texto vacío.
 const patientColumns = `
 	id::text, clinic_id::text, identification, first_name, last_name,
 	to_char(birth_date, 'YYYY-MM-DD'),
@@ -18,17 +18,16 @@ const patientColumns = `
 	active, created_at, updated_at
 `
 
-// PostgresPatientStore implementa PatientStore sobre agenda_db
-// No guarda el pool
-// Cada método usa la conexión o transacción que le pasa el servicio
+// PostgresPatientStore implementa PatientStore sobre agenda_db. No guarda el
+// pool: cada método usa la conexión o transacción que le pasa el servicio.
 type PostgresPatientStore struct{}
 
-// NewPostgresPatientStore devuelve el almacén de pacientes
+// NewPostgresPatientStore devuelve el almacén de pacientes.
 func NewPostgresPatientStore() *PostgresPatientStore {
 	return &PostgresPatientStore{}
 }
 
-// Se verifica en compilación que el almacén cumple la interfaz
+// Se verifica en compilación que el almacén cumple la interfaz.
 var _ PatientStore = (*PostgresPatientStore)(nil)
 
 func scanPatient(row pgx.Row) (Patient, error) {
@@ -52,10 +51,9 @@ func scanPatient(row pgx.Row) (Patient, error) {
 	return patient, err
 }
 
-// Insert crea un paciente en la clínica
-// Los datos de contacto vacíos se guardan como NULL
-// Una identificación repetida en la clínica produce un conflicto
-// La restricción que lo detecta es patients_clinic_identification_unique
+// Insert crea un paciente en la clínica. Los datos de contacto vacíos se
+// guardan como NULL. Una identificación repetida en la clínica produce un
+// conflicto, que detecta la restricción patients_clinic_identification_unique.
 func (s *PostgresPatientStore) Insert(
 	ctx context.Context,
 	db database.DBTX,
@@ -81,11 +79,11 @@ func (s *PostgresPatientStore) Insert(
 	return patient, nil
 }
 
-// Update aplica solo los campos recibidos
-// En cada columna, COALESCE conserva el valor actual si el parámetro es NULL
-// En el contacto, NULL significa "no enviado" y se conserva el valor
-// En el contacto, texto vacío significa "borrar" y la columna queda en NULL
-// La condición clinic_id + id trata un paciente de otra clínica como inexistente
+// Update aplica solo los campos recibidos: en cada columna, COALESCE conserva
+// el valor actual si el parámetro es NULL. En el contacto, NULL significa "no
+// enviado" (se conserva el valor) y un texto vacío significa "borrar" (la
+// columna queda en NULL). La condición clinic_id + id trata a un paciente de
+// otra clínica como inexistente.
 func (s *PostgresPatientStore) Update(
 	ctx context.Context,
 	db database.DBTX,
@@ -117,7 +115,7 @@ func (s *PostgresPatientStore) Update(
 	return patient, nil
 }
 
-// Get devuelve un paciente de la clínica
+// Get devuelve un paciente de la clínica.
 func (s *PostgresPatientStore) Get(
 	ctx context.Context,
 	db database.DBTX,
@@ -137,10 +135,9 @@ func (s *PostgresPatientStore) Get(
 	return patient, nil
 }
 
-// List devuelve los pacientes de la clínica ordenados por apellido y nombre
-// Si hay texto de búsqueda, filtra por prefijo en identificación, nombre o apellido
-// La búsqueda no distingue mayúsculas
-// No devuelve datos de contacto
+// List devuelve los pacientes de la clínica ordenados por apellido y nombre,
+// sin datos de contacto. Si hay texto de búsqueda, filtra por prefijo en
+// identificación, nombre o apellido, sin distinguir mayúsculas.
 func (s *PostgresPatientStore) List(
 	ctx context.Context,
 	db database.DBTX,
@@ -191,8 +188,8 @@ func (s *PostgresPatientStore) List(
 	return patients, nil
 }
 
-// escapeLike neutraliza los comodines de LIKE (\, % y _) en el texto de búsqueda
-// Así se busca literalmente lo que escribió el usuario
+// escapeLike neutraliza los comodines de LIKE (\, % y _) en el texto de
+// búsqueda, para buscar literalmente lo que escribió el usuario.
 func escapeLike(value string) string {
 	replacer := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 

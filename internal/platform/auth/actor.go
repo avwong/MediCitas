@@ -8,46 +8,49 @@ import (
 )
 
 var (
-	// ErrNoSubject means the token has no subject.
+	// ErrNoSubject indica que el token no trae subject.
 	ErrNoSubject = errors.New("token has no subject")
-	// ErrNoDomainRole means the token carries no MediCitas role.
+	// ErrNoDomainRole indica que el token no trae ningún rol de MediCitas.
 	ErrNoDomainRole = errors.New("token carries no domain role")
-	// ErrAmbiguousRole means the token carries more than one MediCitas role.
+	// ErrAmbiguousRole indica que el token trae más de un rol de MediCitas.
 	ErrAmbiguousRole = errors.New("token carries more than one domain role")
-	// ErrNoClinic means a clinic role arrived without a valid clinic claim.
+	// ErrNoClinic indica que un rol de clínica llegó sin un claim de clínica
+	// válido.
 	ErrNoClinic = errors.New("clinic role without a valid clinic claim")
 )
 
-// Claims are the access-token claims MediCitas relies on.
+// Claims son los claims del token de acceso que usa MediCitas.
 type Claims struct {
 	Subject           string `json:"sub"`
 	PreferredUsername string `json:"preferred_username"`
 	AuthorizedParty   string `json:"azp"`
-	// ClinicID is written by the tenancy service as a Keycloak user attribute
-	// and added to the token by a protocol mapper. Because it is signed, no
-	// service ever takes the clinic from the request.
+	// ClinicID lo escribe Tenancy como atributo del usuario en Keycloak y un
+	// protocol mapper lo copia al token. Como viaja firmado, ningún servicio
+	// toma la clínica de la petición.
 	ClinicID    string `json:"clinic_id"`
 	RealmAccess struct {
 		Roles []string `json:"roles"`
 	} `json:"realm_access"`
 }
 
-// Actor is the authenticated caller of a request.
+// Actor es quien hace la petición, ya autenticado.
 type Actor struct {
 	Subject  string
 	Username string
-	// ClinicID is empty for platform administrators and service accounts.
+	// ClinicID queda vacío para la administración de plataforma y las cuentas
+	// de servicio.
 	ClinicID string
 	Role     Role
-	// ClientID is the Keycloak client that obtained the token (azp).
+	// ClientID es el client de Keycloak que obtuvo el token (azp).
 	ClientID string
-	// Token is the raw bearer token, kept to relay the user's identity when a
-	// service calls another one on the user's behalf.
+	// Token es el bearer token original. Se conserva para reenviar la
+	// identidad del usuario cuando un servicio llama a otro en su nombre.
 	Token string
 }
 
-// NewActor validates the claims and builds the actor. A token must carry
-// exactly one domain role, and clinic roles must carry a clinic.
+// NewActor valida los claims y construye el actor. El token debe traer
+// exactamente un rol de dominio, y los roles de clínica deben traer una
+// clínica.
 func NewActor(claims Claims, rawToken string) (Actor, error) {
 	if strings.TrimSpace(claims.Subject) == "" {
 		return Actor{}, ErrNoSubject
@@ -91,12 +94,12 @@ func NewActor(claims Claims, rawToken string) (Actor, error) {
 	}, nil
 }
 
-// Can reports whether the actor's role grants permission.
+// Can indica si el rol del actor concede el permiso.
 func (a Actor) Can(permission Permission) bool {
 	return RoleHasPermission(a.Role, permission)
 }
 
-// IsService reports whether the actor is the service account of clientID.
+// IsService indica si el actor es la cuenta de servicio de clientID.
 func (a Actor) IsService(clientID string) bool {
 	return a.Role == RoleService && a.ClientID == clientID
 }

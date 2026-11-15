@@ -11,18 +11,18 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// PostgresStore implements CatalogStore on agenda_db.
+// PostgresStore implementa CatalogStore sobre agenda_db.
 type PostgresStore struct {
 	pool *pgxpool.Pool
 	tx   *database.TxManager
 }
 
-// NewPostgresStore returns the agenda store.
+// NewPostgresStore devuelve el almacén del catálogo.
 func NewPostgresStore(pool *pgxpool.Pool, tx *database.TxManager) *PostgresStore {
 	return &PostgresStore{pool: pool, tx: tx}
 }
 
-// UpsertClinic stores the local projection of a clinic.
+// UpsertClinic guarda la proyección local de una clínica.
 func (s *PostgresStore) UpsertClinic(ctx context.Context, clinicID, timezone string) error {
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO clinics (id, timezone)
@@ -33,13 +33,14 @@ func (s *PostgresStore) UpsertClinic(ctx context.Context, clinicID, timezone str
 	return database.MapError(err)
 }
 
-// DeleteClinic removes the projection of a clinic. Deleting a clinic that is
-// already gone succeeds; deleting one that has data is a conflict.
+// DeleteClinic elimina la proyección de una clínica. Borrar una que ya no
+// existe cuenta como éxito; borrar una que tiene datos es un conflicto.
 func (s *PostgresStore) DeleteClinic(ctx context.Context, clinicID string) error {
 	_, err := s.pool.Exec(ctx, `DELETE FROM clinics WHERE id = $1`, clinicID)
 	if err != nil {
 		mapped := database.MapError(err)
-		// A foreign key violation here means the clinic is in use.
+		// Aquí una violación de llave foránea significa que la clínica está en
+		// uso.
 		if errors.Is(mapped, apperr.ErrNotFound) {
 			return apperr.Conflict("the clinic already has data")
 		}
@@ -99,7 +100,7 @@ func scanService(row pgx.Row) (MedicalService, error) {
 	return service, err
 }
 
-// CreateService inserts a service in the clinic catalog.
+// CreateService inserta un servicio en el catálogo de la clínica.
 func (s *PostgresStore) CreateService(ctx context.Context, clinicID string, in NewMedicalService) (MedicalService, error) {
 	var service MedicalService
 
@@ -138,7 +139,7 @@ func (s *PostgresStore) CreateService(ctx context.Context, clinicID string, in N
 	return service, nil
 }
 
-// ListServices returns the clinic catalog ordered by name.
+// ListServices devuelve el catálogo de la clínica ordenado por nombre.
 func (s *PostgresStore) ListServices(ctx context.Context, clinicID string) ([]MedicalService, error) {
 	rows, err := s.pool.Query(ctx, serviceSelect+`
 		WHERE s.clinic_id = $1
@@ -166,7 +167,7 @@ func (s *PostgresStore) ListServices(ctx context.Context, clinicID string) ([]Me
 	return services, nil
 }
 
-// GetService returns one service of the clinic.
+// GetService devuelve un servicio de la clínica.
 func (s *PostgresStore) GetService(ctx context.Context, clinicID, serviceID string) (MedicalService, error) {
 	row := s.pool.QueryRow(ctx, serviceSelect+`
 		WHERE s.clinic_id = $1 AND s.id = $2
@@ -180,7 +181,7 @@ func (s *PostgresStore) GetService(ctx context.Context, clinicID, serviceID stri
 	return service, nil
 }
 
-// DeactivateService marks a service inactive.
+// DeactivateService marca un servicio como inactivo.
 func (s *PostgresStore) DeactivateService(ctx context.Context, clinicID, serviceID string) error {
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE services
@@ -198,8 +199,8 @@ func (s *PostgresStore) DeactivateService(ctx context.Context, clinicID, service
 	return nil
 }
 
-// CreatePractitioner inserts the practitioner and their services in one
-// transaction.
+// CreatePractitioner inserta al profesional y sus servicios en una sola
+// transacción.
 func (s *PostgresStore) CreatePractitioner(
 	ctx context.Context,
 	clinicID string,
@@ -239,9 +240,9 @@ func (s *PostgresStore) CreatePractitioner(
 	return practitioner, nil
 }
 
-// ReplacePractitionerServices replaces the set of services a practitioner
-// attends. The practitioner row is locked so two concurrent replacements
-// cannot interleave.
+// ReplacePractitionerServices reemplaza el conjunto de servicios que atiende
+// un profesional. Bloquea la fila del profesional para que dos reemplazos
+// simultáneos no se entremezclen.
 func (s *PostgresStore) ReplacePractitionerServices(
 	ctx context.Context,
 	clinicID string,
@@ -386,13 +387,13 @@ func getPractitioner(ctx context.Context, db database.DBTX, clinicID, practition
 	return practitioner, nil
 }
 
-// GetPractitioner returns one practitioner of the clinic with their services.
+// GetPractitioner devuelve un profesional de la clínica con sus servicios.
 func (s *PostgresStore) GetPractitioner(ctx context.Context, clinicID, practitionerID string) (Practitioner, error) {
 	return getPractitioner(ctx, s.pool, clinicID, practitionerID)
 }
 
-// ListPractitioners returns the practitioners of the clinic with their
-// services, ordered by name.
+// ListPractitioners devuelve los profesionales de la clínica con sus
+// servicios, ordenados por nombre.
 func (s *PostgresStore) ListPractitioners(ctx context.Context, clinicID string) ([]Practitioner, error) {
 	rows, err := s.pool.Query(ctx, practitionerQuery+`
 		GROUP BY p.id, sp.id
@@ -418,4 +419,18 @@ func (s *PostgresStore) ListPractitioners(ctx context.Context, clinicID string) 
 	}
 
 	return practitioners, nil
+}
+
+// SetPractitionerActiveByUser cambia el estado del profesional de ese usuario.
+// No lleva clinic_id porque user_id es único en toda la tabla y quien llama es
+// Tenancy, no un usuario de una clínica. Si el usuario no tiene profesional,
+// no hace nada.
+func (s *PostgresStore) SetPractitionerActiveByUser(ctx context.Context, userID string, active bool) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE practitioners
+		SET active = $2
+		WHERE user_id = $1
+	`, userID, active)
+
+	return database.MapError(err)
 }

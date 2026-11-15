@@ -11,22 +11,21 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// PatientHandler expone los pacientes (RF14) por HTTP
-// Vive aparte de Handler para no mezclar el catálogo con los pacientes
+// PatientHandler expone los pacientes (RF14) por HTTP. Vive aparte de Handler
+// para no mezclar el catálogo con los pacientes.
 type PatientHandler struct {
 	patients *Patients
 	logger   *slog.Logger
 }
 
-// NewPatientHandler devuelve el handler HTTP de pacientes
+// NewPatientHandler devuelve el handler HTTP de pacientes.
 func NewPatientHandler(patients *Patients, logger *slog.Logger) *PatientHandler {
 	return &PatientHandler{patients: patients, logger: logger}
 }
 
-// RegisterRoutes agrega las rutas de pacientes a api
-// api ya exige un token válido
-// Los permisos siguen la matriz del enunciado para RF14
-// Administración y recepción escriben, y el profesional solo lee
+// RegisterRoutes agrega las rutas de pacientes a api, que ya exige un token
+// válido. Los permisos siguen la matriz del enunciado para RF14:
+// administración y recepción escriben, y el profesional solo lee.
 func (h *PatientHandler) RegisterRoutes(api *gin.RouterGroup) {
 	write := auth.RequirePermission(auth.PermPatientsWrite)
 	read := auth.RequirePermission(auth.PermPatientsRead)
@@ -37,8 +36,8 @@ func (h *PatientHandler) RegisterRoutes(api *gin.RouterGroup) {
 	api.GET("/patients/:id", read, h.GetPatient)
 }
 
-// createPatientRequest es el cuerpo de POST /api/v1/patients
-// La clínica no viene en el cuerpo: se toma siempre del token firmado (I5)
+// createPatientRequest es el cuerpo de POST /api/v1/patients. La clínica no
+// viene en el cuerpo: se toma siempre del token firmado (I5).
 type createPatientRequest struct {
 	Identification string `json:"identification"`
 	FirstName      string `json:"first_name"`
@@ -49,10 +48,9 @@ type createPatientRequest struct {
 	Address        string `json:"address"`
 }
 
-// updatePatientRequest es el cuerpo de PATCH /api/v1/patients/:id
-// Los campos son punteros para distinguir "no enviado" de "enviado vacío"
-// Un campo ausente no se modifica
-// Un dato de contacto enviado vacío se borra
+// updatePatientRequest es el cuerpo de PATCH /api/v1/patients/:id. Los campos
+// son punteros para distinguir "no enviado" de "enviado vacío": un campo
+// ausente no se modifica y un dato de contacto enviado vacío se borra.
 type updatePatientRequest struct {
 	Identification *string `json:"identification"`
 	FirstName      *string `json:"first_name"`
@@ -63,9 +61,9 @@ type updatePatientRequest struct {
 	Address        *string `json:"address"`
 }
 
-// CreatePatient atiende POST /api/v1/patients
+// CreatePatient atiende POST /api/v1/patients.
 func (h *PatientHandler) CreatePatient(c *gin.Context) {
-	actor, ok := h.actor(c)
+	actor, ok := auth.CurrentActor(c)
 	if !ok {
 		return
 	}
@@ -92,9 +90,9 @@ func (h *PatientHandler) CreatePatient(c *gin.Context) {
 	c.JSON(http.StatusCreated, patient)
 }
 
-// UpdatePatient atiende PATCH /api/v1/patients/:id
+// UpdatePatient atiende PATCH /api/v1/patients/:id.
 func (h *PatientHandler) UpdatePatient(c *gin.Context) {
-	actor, ok := h.actor(c)
+	actor, ok := auth.CurrentActor(c)
 	if !ok {
 		return
 	}
@@ -121,11 +119,11 @@ func (h *PatientHandler) UpdatePatient(c *gin.Context) {
 	c.JSON(http.StatusOK, patient)
 }
 
-// GetPatient atiende GET /api/v1/patients/:id
-// Devuelve el paciente con sus datos de contacto
-// Esta lectura queda registrada en la bitácora de auditoría
+// GetPatient atiende GET /api/v1/patients/:id. Devuelve el paciente con sus
+// datos de contacto, y esa lectura queda registrada en la bitácora de
+// auditoría.
 func (h *PatientHandler) GetPatient(c *gin.Context) {
-	actor, ok := h.actor(c)
+	actor, ok := auth.CurrentActor(c)
 	if !ok {
 		return
 	}
@@ -139,20 +137,19 @@ func (h *PatientHandler) GetPatient(c *gin.Context) {
 	c.JSON(http.StatusOK, patient)
 }
 
-// ListPatients atiende GET /api/v1/patients
-// Acepta los parámetros opcionales q (búsqueda por prefijo) y limit
-// Devuelve solo datos básicos, sin contacto
+// ListPatients atiende GET /api/v1/patients. Acepta los parámetros opcionales
+// q (búsqueda por prefijo) y limit, y devuelve solo datos básicos, sin
+// contacto.
 func (h *PatientHandler) ListPatients(c *gin.Context) {
-	actor, ok := h.actor(c)
+	actor, ok := auth.CurrentActor(c)
 	if !ok {
 		return
 	}
 
 	filter := PatientFilter{Query: c.Query("q")}
 
-	// El límite es opcional
-	// Si viene, debe ser un entero
-	// El servicio valida el rango
+	// El límite es opcional. Si viene debe ser un entero; el rango lo valida
+	// el servicio.
 	if rawLimit := c.Query("limit"); rawLimit != "" {
 		limit, err := strconv.Atoi(rawLimit)
 		if err != nil {
@@ -170,16 +167,4 @@ func (h *PatientHandler) ListPatients(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"items": patients})
-}
-
-// actor obtiene al usuario autenticado del contexto de la petición
-// Si no hay, responde 401
-func (h *PatientHandler) actor(c *gin.Context) (auth.Actor, bool) {
-	actor, ok := auth.ActorFrom(c)
-	if !ok {
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
-		return auth.Actor{}, false
-	}
-
-	return actor, true
 }

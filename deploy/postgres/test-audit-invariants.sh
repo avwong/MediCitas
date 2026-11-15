@@ -1,4 +1,7 @@
 #!/bin/sh
+# Prueba de integración de la auditoría (I6): los outbox y la bitácora central
+# no se pueden modificar ni con la identidad de la aplicación ni con la del
+# dueño, y reenviar un mismo evento deja una sola fila en la bitácora.
 set -eu
 
 HOST="${PGHOST:-postgres}"

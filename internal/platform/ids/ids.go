@@ -1,5 +1,6 @@
-// Package ids validates identifiers before they reach the database, so a
-// malformed identifier is answered with 400 instead of a database error.
+// Package ids valida los identificadores antes de que lleguen a la base de
+// datos, para que uno mal formado se responda con 400 y no con un error de la
+// base.
 package ids
 
 import (
@@ -11,21 +12,21 @@ var uuidPattern = regexp.MustCompile(
 	`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`,
 )
 
-// Normalize lower-cases and trims value and reports whether it is a UUID in
-// canonical form.
+// Normalize pasa value a minúsculas, le quita los espacios e indica si es un
+// UUID en forma canónica.
 func Normalize(value string) (string, bool) {
 	normalized := strings.ToLower(strings.TrimSpace(value))
 	return normalized, uuidPattern.MatchString(normalized)
 }
 
-// IsUUID reports whether value is a UUID in canonical form.
+// IsUUID indica si value es un UUID en forma canónica.
 func IsUUID(value string) bool {
 	_, ok := Normalize(value)
 	return ok
 }
 
-// NormalizeAll normalizes every value, removes duplicates and reports whether
-// all of them are UUIDs. The result is never nil.
+// NormalizeAll normaliza todos los valores, quita los repetidos e indica si
+// todos son UUID. El resultado nunca es nil.
 func NormalizeAll(values []string) ([]string, bool) {
 	seen := make(map[string]struct{}, len(values))
 	result := make([]string, 0, len(values))

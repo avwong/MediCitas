@@ -4,53 +4,61 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/avwong/MediCitas/internal/platform/apperr"
 	"github.com/avwong/MediCitas/internal/platform/auth"
 	"github.com/avwong/MediCitas/internal/platform/httpx"
 	"github.com/gin-gonic/gin"
 )
 
-// Handler exposes the agenda over HTTP.
+// Handler expone el catálogo de Agenda por HTTP.
 type Handler struct {
 	catalog *Catalog
 	logger  *slog.Logger
 }
 
-// NewHandler returns the agenda HTTP handler.
+// NewHandler devuelve el handler HTTP del catálogo.
 func NewHandler(catalog *Catalog, logger *slog.Logger) *Handler {
 	return &Handler{catalog: catalog, logger: logger}
 }
 
-// RegisterRoutes adds the public routes to api, which already requires a
-// valid token.
+// RegisterRoutes agrega las rutas públicas a api, que ya exige un token
+// válido.
 func (h *Handler) RegisterRoutes(api *gin.RouterGroup) {
 	manage := auth.RequirePermission(auth.PermCatalogManage)
 	read := auth.RequirePermission(auth.PermCatalogRead)
 
-	// RF3: service catalog.
+	// RF3: catálogo de servicios.
 	api.POST("/services", manage, h.CreateService)
 	api.GET("/services", read, h.ListServices)
 	api.GET("/services/:id", read, h.GetService)
 	api.DELETE("/services/:id", manage, h.DeactivateService)
 
-	// RF4: practitioners and the services they attend.
+	// RF4: profesionales y los servicios que atienden.
 	api.POST("/practitioners", manage, h.CreatePractitioner)
 	api.GET("/practitioners", read, h.ListPractitioners)
 	api.GET("/practitioners/:id", read, h.GetPractitioner)
 	api.PUT("/practitioners/:id/services", manage, h.ReplacePractitionerServices)
 }
 
-// RegisterInternalRoutes adds the routes other services call. internal must
-// already require a valid token; only tenancyClientID's service account may
-// call them. The proxy does not expose /internal.
+// RegisterInternalRoutes agrega las rutas que usan otros servicios. internal
+// ya debe exigir un token válido; solo la cuenta de servicio de
+// tenancyClientID puede llamarlas. El proxy no expone /internal.
 func (h *Handler) RegisterInternalRoutes(internal *gin.RouterGroup, tenancyClientID string) {
 	onlyTenancy := auth.RequireService(tenancyClientID)
 
 	internal.PUT("/clinics/:id", onlyTenancy, h.ProvisionClinic)
 	internal.DELETE("/clinics/:id", onlyTenancy, h.DeprovisionClinic)
+	internal.PUT("/practitioners/by-user/:user_id/active", onlyTenancy, h.SetPractitionerActive)
 }
 
 type provisionClinicRequest struct {
 	Timezone string `json:"timezone"`
+}
+
+// setPractitionerActiveRequest usa un puntero para exigir el campo: sin él, un
+// cuerpo vacío se leería como "desactivar".
+type setPractitionerActiveRequest struct {
+	Active *bool `json:"active"`
 }
 
 type createServiceRequest struct {
@@ -70,7 +78,7 @@ type replaceServicesRequest struct {
 	ServiceIDs []string `json:"service_ids"`
 }
 
-// ProvisionClinic handles PUT /internal/clinics/:id.
+// ProvisionClinic atiende PUT /internal/clinics/:id.
 func (h *Handler) ProvisionClinic(c *gin.Context) {
 	var request provisionClinicRequest
 	if !httpx.BindJSON(c, &request) {
@@ -85,7 +93,7 @@ func (h *Handler) ProvisionClinic(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-// DeprovisionClinic handles DELETE /internal/clinics/:id.
+// DeprovisionClinic atiende DELETE /internal/clinics/:id.
 func (h *Handler) DeprovisionClinic(c *gin.Context) {
 	if err := h.catalog.DeprovisionClinic(c.Request.Context(), c.Param("id")); err != nil {
 		httpx.WriteError(c, h.logger, err)
@@ -95,9 +103,30 @@ func (h *Handler) DeprovisionClinic(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-// CreateService handles POST /api/v1/services.
+// SetPractitionerActive atiende PUT
+// /internal/practitioners/by-user/:user_id/active.
+func (h *Handler) SetPractitionerActive(c *gin.Context) {
+	var request setPractitionerActiveRequest
+	if !httpx.BindJSON(c, &request) {
+		return
+	}
+
+	if request.Active == nil {
+		httpx.WriteError(c, h.logger, apperr.Invalid("active is required"))
+		return
+	}
+
+	if err := h.catalog.SetPractitionerActive(c.Request.Context(), c.Param("user_id"), *request.Active); err != nil {
+		httpx.WriteError(c, h.logger, err)
+		return
+	}
+
+	c.Status(http.StatusNoContent)
+}
+
+// CreateService atiende POST /api/v1/services.
 func (h *Handler) CreateService(c *gin.Context) {
-	actor, ok := h.actor(c)
+	actor, ok := auth.CurrentActor(c)
 	if !ok {
 		return
 	}
@@ -120,9 +149,9 @@ func (h *Handler) CreateService(c *gin.Context) {
 	c.JSON(http.StatusCreated, service)
 }
 
-// ListServices handles GET /api/v1/services.
+// ListServices atiende GET /api/v1/services.
 func (h *Handler) ListServices(c *gin.Context) {
-	actor, ok := h.actor(c)
+	actor, ok := auth.CurrentActor(c)
 	if !ok {
 		return
 	}
@@ -136,9 +165,9 @@ func (h *Handler) ListServices(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"items": services})
 }
 
-// GetService handles GET /api/v1/services/:id.
+// GetService atiende GET /api/v1/services/:id.
 func (h *Handler) GetService(c *gin.Context) {
-	actor, ok := h.actor(c)
+	actor, ok := auth.CurrentActor(c)
 	if !ok {
 		return
 	}
@@ -152,9 +181,9 @@ func (h *Handler) GetService(c *gin.Context) {
 	c.JSON(http.StatusOK, service)
 }
 
-// DeactivateService handles DELETE /api/v1/services/:id.
+// DeactivateService atiende DELETE /api/v1/services/:id.
 func (h *Handler) DeactivateService(c *gin.Context) {
-	actor, ok := h.actor(c)
+	actor, ok := auth.CurrentActor(c)
 	if !ok {
 		return
 	}
@@ -167,9 +196,9 @@ func (h *Handler) DeactivateService(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-// CreatePractitioner handles POST /api/v1/practitioners.
+// CreatePractitioner atiende POST /api/v1/practitioners.
 func (h *Handler) CreatePractitioner(c *gin.Context) {
-	actor, ok := h.actor(c)
+	actor, ok := auth.CurrentActor(c)
 	if !ok {
 		return
 	}
@@ -197,9 +226,9 @@ func (h *Handler) CreatePractitioner(c *gin.Context) {
 	c.JSON(http.StatusCreated, practitioner)
 }
 
-// ListPractitioners handles GET /api/v1/practitioners.
+// ListPractitioners atiende GET /api/v1/practitioners.
 func (h *Handler) ListPractitioners(c *gin.Context) {
-	actor, ok := h.actor(c)
+	actor, ok := auth.CurrentActor(c)
 	if !ok {
 		return
 	}
@@ -213,9 +242,9 @@ func (h *Handler) ListPractitioners(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"items": practitioners})
 }
 
-// GetPractitioner handles GET /api/v1/practitioners/:id.
+// GetPractitioner atiende GET /api/v1/practitioners/:id.
 func (h *Handler) GetPractitioner(c *gin.Context) {
-	actor, ok := h.actor(c)
+	actor, ok := auth.CurrentActor(c)
 	if !ok {
 		return
 	}
@@ -229,9 +258,9 @@ func (h *Handler) GetPractitioner(c *gin.Context) {
 	c.JSON(http.StatusOK, practitioner)
 }
 
-// ReplacePractitionerServices handles PUT /api/v1/practitioners/:id/services.
+// ReplacePractitionerServices atiende PUT /api/v1/practitioners/:id/services.
 func (h *Handler) ReplacePractitionerServices(c *gin.Context) {
-	actor, ok := h.actor(c)
+	actor, ok := auth.CurrentActor(c)
 	if !ok {
 		return
 	}
@@ -253,14 +282,4 @@ func (h *Handler) ReplacePractitionerServices(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, practitioner)
-}
-
-func (h *Handler) actor(c *gin.Context) (auth.Actor, bool) {
-	actor, ok := auth.ActorFrom(c)
-	if !ok {
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
-		return auth.Actor{}, false
-	}
-
-	return actor, true
 }

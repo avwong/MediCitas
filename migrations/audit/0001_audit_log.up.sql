@@ -1,3 +1,9 @@
+-- Auditoría: bitácora central (RF18, RF19).
+--
+-- Recibe los eventos de Agenda y Expediente. Solo admite inserciones (I6):
+-- audit_app no tiene privilegios para modificarla y un trigger rechaza
+-- UPDATE y DELETE incluso al dueño de las migraciones.
+
 CREATE TABLE audit_log (
     event_id UUID PRIMARY KEY,
     clinic_id UUID NOT NULL,
@@ -47,7 +53,7 @@ BEFORE UPDATE OR DELETE ON audit_log
 FOR EACH ROW
 EXECUTE FUNCTION reject_audit_log_mutation();
 
--- audit_app is intentionally append-only.
+-- audit_app solo puede agregar registros, a propósito.
 REVOKE UPDATE, DELETE, TRUNCATE
 ON audit_log
 FROM audit_app;

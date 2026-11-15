@@ -11,13 +11,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// PostgresStore implements Store on tenancy_db.
+// PostgresStore implementa Store sobre tenancy_db.
 type PostgresStore struct {
 	pool *pgxpool.Pool
 	tx   *database.TxManager
 }
 
-// NewPostgresStore returns the tenancy store.
+// NewPostgresStore devuelve el almacén de Tenancy.
 func NewPostgresStore(pool *pgxpool.Pool, tx *database.TxManager) *PostgresStore {
 	return &PostgresStore{pool: pool, tx: tx}
 }
@@ -61,7 +61,7 @@ func scanUser(row pgx.Row) (User, error) {
 	return user, err
 }
 
-// InsertClinic registers a clinic.
+// InsertClinic registra una clínica.
 func (s *PostgresStore) InsertClinic(ctx context.Context, clinic Clinic) (Clinic, error) {
 	row := s.pool.QueryRow(ctx, `
 		INSERT INTO clinics (identifier, name, timezone, status)
@@ -78,8 +78,8 @@ func (s *PostgresStore) InsertClinic(ctx context.Context, clinic Clinic) (Clinic
 	return created, nil
 }
 
-// ActivateClinic records the clinic's first administrator and activates the
-// clinic in a single transaction.
+// ActivateClinic registra al primer administrador de la clínica y la activa en
+// una sola transacción.
 func (s *PostgresStore) ActivateClinic(ctx context.Context, clinicID string, admin User) (Clinic, User, error) {
 	var clinic Clinic
 	var user User
@@ -112,8 +112,8 @@ func (s *PostgresStore) ActivateClinic(ctx context.Context, clinicID string, adm
 	return clinic, user, nil
 }
 
-// DeleteProvisioningClinic removes a clinic whose creation failed. Active
-// clinics are never deleted.
+// DeleteProvisioningClinic elimina una clínica cuya creación falló. Una
+// clínica activa nunca se borra.
 func (s *PostgresStore) DeleteProvisioningClinic(ctx context.Context, clinicID string) error {
 	_, err := s.pool.Exec(ctx, `
 		DELETE FROM clinics
@@ -123,7 +123,7 @@ func (s *PostgresStore) DeleteProvisioningClinic(ctx context.Context, clinicID s
 	return database.MapError(err)
 }
 
-// ListClinics returns every clinic ordered by identifier.
+// ListClinics devuelve todas las clínicas ordenadas por identificador.
 func (s *PostgresStore) ListClinics(ctx context.Context) ([]Clinic, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+clinicColumns+`
@@ -152,7 +152,7 @@ func (s *PostgresStore) ListClinics(ctx context.Context) ([]Clinic, error) {
 	return clinics, nil
 }
 
-// InsertUser records a user.
+// InsertUser registra un usuario.
 func (s *PostgresStore) InsertUser(ctx context.Context, user User) (User, error) {
 	return insertUser(ctx, s.pool, user)
 }
@@ -176,7 +176,7 @@ func insertUser(ctx context.Context, db database.DBTX, user User) (User, error) 
 	return created, nil
 }
 
-// GetUser returns a user of the clinic.
+// GetUser devuelve un usuario de la clínica.
 func (s *PostgresStore) GetUser(ctx context.Context, clinicID, userID string) (User, error) {
 	user, err := scanUser(s.pool.QueryRow(ctx, `
 		SELECT `+userColumns+`
@@ -190,7 +190,7 @@ func (s *PostgresStore) GetUser(ctx context.Context, clinicID, userID string) (U
 	return user, nil
 }
 
-// FindUserBySubject returns the user with the given Keycloak subject.
+// FindUserBySubject devuelve el usuario con ese subject de Keycloak.
 func (s *PostgresStore) FindUserBySubject(ctx context.Context, subject string) (User, error) {
 	user, err := scanUser(s.pool.QueryRow(ctx, `
 		SELECT `+userColumns+`
@@ -204,7 +204,8 @@ func (s *PostgresStore) FindUserBySubject(ctx context.Context, subject string) (
 	return user, nil
 }
 
-// ListUsers returns the users of the clinic ordered by username.
+// ListUsers devuelve los usuarios de la clínica ordenados por nombre de
+// usuario.
 func (s *PostgresStore) ListUsers(ctx context.Context, clinicID string) ([]User, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+userColumns+`
@@ -234,7 +235,7 @@ func (s *PostgresStore) ListUsers(ctx context.Context, clinicID string) ([]User,
 	return users, nil
 }
 
-// SetUserRole updates the local copy of a user's role.
+// SetUserRole actualiza la copia local del rol de un usuario.
 func (s *PostgresStore) SetUserRole(ctx context.Context, clinicID, userID string, role auth.Role) error {
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE users
@@ -252,8 +253,8 @@ func (s *PostgresStore) SetUserRole(ctx context.Context, clinicID, userID string
 	return nil
 }
 
-// DeactivateUser marks a user inactive. Deactivating an inactive user is a
-// no-op so retries succeed.
+// DeactivateUser marca a un usuario como inactivo. Si ya lo estaba no hace
+// nada, así que los reintentos tienen éxito.
 func (s *PostgresStore) DeactivateUser(ctx context.Context, clinicID, userID string) error {
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE users

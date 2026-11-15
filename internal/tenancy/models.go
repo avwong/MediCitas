@@ -1,6 +1,6 @@
-// Package tenancy registers clinics and the user accounts that work in them.
-// It is the only service that operates across clinics and the only one that
-// holds credentials for Keycloak's admin API.
+// Package tenancy registra las clínicas y las cuentas de usuario que trabajan
+// en ellas. Es el único servicio que opera sobre todas las clínicas y el único
+// que guarda credenciales de la API de administración de Keycloak.
 package tenancy
 
 import (
@@ -9,14 +9,14 @@ import (
 	"github.com/avwong/MediCitas/internal/platform/auth"
 )
 
-// Clinic statuses. A clinic stays in provisioning while the creation saga
-// runs and becomes active once every step has succeeded.
+// Estados de una clínica. Queda en provisioning mientras corre la saga de
+// creación y pasa a active cuando todos los pasos terminaron bien.
 const (
 	ClinicProvisioning = "provisioning"
 	ClinicActive       = "active"
 )
 
-// Clinic is a tenant of the platform (RF1).
+// Clinic es un tenant de la plataforma (RF1).
 type Clinic struct {
 	ID         string    `json:"id"`
 	Identifier string    `json:"identifier"`
@@ -26,9 +26,9 @@ type Clinic struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 
-// User links a Keycloak identity with its clinic and role (RF2). Keycloak
-// holds the credentials and is the source of truth for the role; role here
-// is a copy kept for listings and for the database constraints.
+// User relaciona una identidad de Keycloak con su clínica y su rol (RF2).
+// Keycloak guarda las credenciales y es la fuente de verdad del rol; el rol de
+// aquí es una copia para los listados y las restricciones de la base.
 type User struct {
 	ID        string    `json:"id"`
 	ClinicID  string    `json:"clinic_id,omitempty"`
@@ -39,7 +39,7 @@ type User struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// Account is the identity to create in Keycloak.
+// Account es la identidad que se crea en Keycloak.
 type Account struct {
 	Username  string
 	Email     string
@@ -48,14 +48,14 @@ type Account struct {
 	Password  string
 }
 
-// NewIdentity is an account together with the clinic and role it gets.
+// NewIdentity es una cuenta junto con la clínica y el rol que recibe.
 type NewIdentity struct {
 	Account  Account
 	ClinicID string
 	Role     auth.Role
 }
 
-// CreateClinicInput is the input of RF1.
+// CreateClinicInput es la entrada de RF1.
 type CreateClinicInput struct {
 	Identifier string
 	Name       string
@@ -63,7 +63,7 @@ type CreateClinicInput struct {
 	Admin      Account
 }
 
-// CreateUserInput is the input of RF2.
+// CreateUserInput es la entrada de RF2.
 type CreateUserInput struct {
 	Account Account
 	Role    string

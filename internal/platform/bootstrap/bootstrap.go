@@ -1,5 +1,5 @@
-// Package bootstrap wires the pieces every service shares: logger, database
-// pool, token verifier, router and health endpoints.
+// Package bootstrap arma las piezas que comparten todos los servicios: logger,
+// pool de base de datos, verificador de tokens, router y rutas de salud.
 package bootstrap
 
 import (
@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"log/slog"
 
-	// Embeds the IANA time zone database in the binary. The runtime image is
-	// Alpine, which ships without it, and clinic time zones must resolve.
+	// Incluye en el binario la base de zonas horarias de IANA. La imagen final
+	// es Alpine, que no la trae, y las zonas de las clínicas deben resolverse.
 	_ "time/tzdata"
 
 	"github.com/avwong/MediCitas/internal/platform/auth"
@@ -20,7 +20,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// App holds a service's shared dependencies.
+// App reúne las dependencias compartidas de un servicio.
 type App struct {
 	Name     string
 	Logger   *slog.Logger
@@ -28,16 +28,17 @@ type App struct {
 	Tx       *database.TxManager
 	Verifier *auth.Verifier
 	Router   *gin.Engine
-	// API is the /api/v1 group. Every route registered on it requires a
-	// valid access token.
+	// API es el grupo /api/v1. Toda ruta registrada en él exige un token de
+	// acceso válido.
 	API *gin.RouterGroup
 
 	addr string
 }
 
-// New reads the shared configuration from env, connects to the database and
-// builds the router. Service-specific variables must be read from the same
-// env before calling New, so every missing variable is reported together.
+// New lee de env la configuración compartida, se conecta a la base de datos y
+// construye el router. Las variables propias de cada servicio deben leerse del
+// mismo env antes de llamar a New, para que todas las que falten se reporten
+// juntas.
 func New(ctx context.Context, name string, env *config.Loader) (*App, error) {
 	dbConfig := database.ConfigFromEnv(env)
 
@@ -81,7 +82,8 @@ func New(ctx context.Context, name string, env *config.Loader) (*App, error) {
 	}, nil
 }
 
-// Run serves HTTP until ctx is cancelled and then releases the database pool.
+// Run atiende HTTP hasta que ctx se cancela y luego libera el pool de la base
+// de datos.
 func (a *App) Run(ctx context.Context) error {
 	defer a.DB.Close()
 

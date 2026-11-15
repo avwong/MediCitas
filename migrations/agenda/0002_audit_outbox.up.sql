@@ -1,3 +1,10 @@
+-- Agenda: outbox de auditoría (RF18).
+--
+-- Cada evento se escribe aquí en la misma transacción que la operación
+-- auditada, y un relay lo entrega después a Auditoría. El outbox solo admite
+-- inserciones (I6): las entregas se anotan aparte, en audit_outbox_delivered,
+-- para no tener que modificarlo.
+
 CREATE TABLE audit_outbox (
     event_id UUID PRIMARY KEY,
     clinic_id UUID NOT NULL,
@@ -39,7 +46,8 @@ BEFORE UPDATE OR DELETE ON audit_outbox
 FOR EACH ROW
 EXECUTE FUNCTION reject_audit_outbox_mutation();
 
--- Default privileges give agenda_app normal Agenda DML. The outbox is stricter.
+-- Los privilegios por defecto le dan a agenda_app el DML normal de Agenda. El
+-- outbox es más estricto.
 REVOKE UPDATE, DELETE, TRUNCATE
 ON audit_outbox
 FROM agenda_app;

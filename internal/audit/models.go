@@ -1,3 +1,6 @@
+// Package audit es la bitácora central de auditoría: recibe los eventos que
+// producen Agenda y Expediente (RF18), los guarda sin permitir cambios (I6) y
+// los deja consultar al administrador de la clínica (RF19).
 package audit
 
 import (
@@ -7,7 +10,7 @@ import (
 	"github.com/avwong/MediCitas/internal/platform/outbox"
 )
 
-// Entry is one immutable audit-log record.
+// Entry es un registro inmutable de la bitácora de auditoría.
 type Entry struct {
 	EventID       string        `json:"event_id"`
 	ClinicID      string        `json:"clinic_id"`
@@ -22,7 +25,7 @@ type Entry struct {
 	ReceivedAt    time.Time     `json:"received_at"`
 }
 
-// Filter contains the RF19 filters.
+// Filter contiene los filtros de RF19.
 type Filter struct {
 	User      string
 	PatientID string
@@ -31,7 +34,7 @@ type Filter struct {
 	Limit     int
 }
 
-// Store persists and queries audit records.
+// Store guarda y consulta los registros de auditoría.
 type Store interface {
 	Insert(ctx context.Context, event outbox.Event) error
 	List(ctx context.Context, clinicID string, filter Filter) ([]Entry, error)

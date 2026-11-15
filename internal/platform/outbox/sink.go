@@ -8,18 +8,18 @@ import (
 	"github.com/avwong/MediCitas/internal/platform/svcclient"
 )
 
-// TokenSource supplies a service-account token.
+// TokenSource entrega un token de cuenta de servicio.
 type TokenSource interface {
 	Token(ctx context.Context) (string, error)
 }
 
-// HTTPSink delivers events to the central audit service.
+// HTTPSink entrega los eventos al servicio central de Auditoría.
 type HTTPSink struct {
 	client *svcclient.Client
 	tokens TokenSource
 }
 
-// NewHTTPSink returns an HTTP audit sink.
+// NewHTTPSink devuelve un destino de auditoría por HTTP.
 func NewHTTPSink(baseURL string, tokens TokenSource) *HTTPSink {
 	return &HTTPSink{
 		client: svcclient.New(baseURL),
@@ -27,7 +27,8 @@ func NewHTTPSink(baseURL string, tokens TokenSource) *HTTPSink {
 	}
 }
 
-// Deliver sends one event. Audit ingestion is idempotent by event_id.
+// Deliver envía un evento. Auditoría lo recibe de forma idempotente por
+// event_id.
 func (s *HTTPSink) Deliver(ctx context.Context, event Event) error {
 	token, err := s.tokens.Token(ctx)
 	if err != nil {
