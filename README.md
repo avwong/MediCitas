@@ -253,6 +253,20 @@ Entrega real de los relays de Agenda y Expediente hacia Audit:
 docker compose --profile test run --rm audit-relay-test
 ~~~
 
+Pacientes (RF14), auditoría de contacto (RF18) y aislamiento entre clínicas (I5) contra la pila real:
+
+~~~bash
+docker compose --profile test run --build --rm agenda-api-integration-test
+~~~
+
+Son 23 comprobaciones sobre la API (`cmd/agendacheck`). Cada una lleva en su nombre el requisito o invariante que sostiene. Se pueden repetir sin preparar datos, porque cada ejecución usa identificaciones únicas. Verifican, entre otras cosas:
+
+- los permisos por rol (recepción y administración escriben, el profesional solo lee, la plataforma no accede) y el 401 sin token;
+- las validaciones, los conflictos por identificación repetida y que las tildes se conserven;
+- que otra clínica no vea ni modifique un paciente, ni con parámetros de clínica manipulados en el cuerpo o en la consulta;
+- que el listado no exponga datos de contacto;
+- que la bitácora central tenga exactamente los accesos al contacto que se hicieron, y que las operaciones rechazadas no dejen eventos.
+
 La verificación completa de P1 puede ejecutarse con un solo comando:
 
 ~~~powershell
