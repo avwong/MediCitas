@@ -17,8 +17,8 @@ import (
 
 const testPatientID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
 
-// patientReceptionist es el actor de las pruebas
-// Recepción tiene permiso para escribir y leer pacientes
+// patientReceptionist es el actor de las pruebas. Recepción tiene permiso para
+// escribir y leer pacientes.
 var patientReceptionist = auth.Actor{
 	Subject:  "reception-subject",
 	Username: "reception",
@@ -26,8 +26,8 @@ var patientReceptionist = auth.Actor{
 	Role:     auth.RoleReception,
 }
 
-// fakePatientStore registra las llamadas que recibe
-// El SQL real se prueba contra la base de datos, no aquí
+// fakePatientStore registra las llamadas que recibe. El SQL real se prueba
+// contra la base de datos, no aquí.
 type fakePatientStore struct {
 	inserted   []NewPatient
 	updated    []PatientUpdate
@@ -35,7 +35,7 @@ type fakePatientStore struct {
 	clinicIDs  []string
 	listFilter PatientFilter
 	listCalls  int
-	// err es el error que devuelven todos los métodos
+	// err es el error que devuelven todos los métodos.
 	err error
 }
 
@@ -80,8 +80,8 @@ func (s *fakePatientStore) List(_ context.Context, _ database.DBTX, clinicID str
 	return []PatientSummary{}, s.err
 }
 
-// fakePatientTx registra las opciones de cada transacción
-// Ejecuta la función directamente, sin base de datos
+// fakePatientTx registra las opciones de cada transacción y ejecuta la función
+// directamente, sin base de datos.
 type fakePatientTx struct {
 	options []database.TxOptions
 	err     error
@@ -97,7 +97,7 @@ func (f *fakePatientTx) Run(ctx context.Context, opts database.TxOptions, fn fun
 	return fn(ctx, nil)
 }
 
-// fakePatientAudit guarda los eventos de auditoría que recibe
+// fakePatientAudit guarda los eventos de auditoría que recibe.
 type fakePatientAudit struct {
 	events []outbox.Event
 	err    error
@@ -109,8 +109,8 @@ func (f *fakePatientAudit) Append(_ context.Context, _ database.DBTX, event outb
 	return event, f.err
 }
 
-// newTestPatients arma el servicio con sus tres fakes
-// Fija la fecha actual para que las pruebas de fecha de nacimiento no dependan del reloj
+// newTestPatients arma el servicio con sus tres fakes y fija la fecha actual,
+// para que las pruebas de fecha de nacimiento no dependan del reloj.
 func newTestPatients() (*Patients, *fakePatientStore, *fakePatientTx, *fakePatientAudit) {
 	store := &fakePatientStore{}
 	tx := &fakePatientTx{}
@@ -124,7 +124,8 @@ func newTestPatients() (*Patients, *fakePatientStore, *fakePatientTx, *fakePatie
 	return patients, store, tx, audit
 }
 
-// validNewPatient devuelve un paciente nuevo válido para que cada caso cambie solo un campo
+// validNewPatient devuelve un paciente nuevo válido, para que cada caso cambie
+// un solo campo.
 func validNewPatient() NewPatient {
 	return NewPatient{
 		Identification: "1-1111-1111",
@@ -142,8 +143,9 @@ func patientStrPtr(value string) *string {
 }
 
 // Cubre RF14 (registrar pacientes con identificación, nombre, fecha de nacimiento y contacto)
-// Las entradas inválidas se rechazan con 400 antes de abrir la transacción
-// Nada llega al almacén ni a la auditoría
+//
+// Las entradas inválidas se rechazan antes de abrir la transacción: nada llega
+// al almacén ni a la auditoría.
 func TestCreatePatientValidation(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -183,7 +185,9 @@ func TestCreatePatientValidation(t *testing.T) {
 // Cubre RF14 (registrar pacientes)
 // Cubre RF18 (auditoría de la escritura de contacto)
 // Cubre I5 (la clínica sale del actor)
-// Un alta válida recorta los textos, usa la clínica del actor y audita la escritura
+//
+// Un alta válida recorta los textos, usa la clínica del actor y audita la
+// escritura.
 func TestCreatePatientTrimsAndAuditsTheWrite(t *testing.T) {
 	patients, store, tx, audit := newTestPatients()
 
@@ -204,7 +208,7 @@ func TestCreatePatientTrimsAndAuditsTheWrite(t *testing.T) {
 		t.Error("el paciente debe crearse en la clínica del actor")
 	}
 
-	// La transacción lleva la clínica para que RLS pueda usarla
+	// La transacción lleva la clínica para que RLS pueda usarla.
 	if len(tx.options) != 1 || tx.options[0].ClinicID != clinicA || tx.options[0].ReadOnly {
 		t.Errorf("opciones de la transacción = %+v, want clínica del actor y lectura-escritura", tx.options)
 	}
@@ -225,8 +229,9 @@ func TestCreatePatientTrimsAndAuditsTheWrite(t *testing.T) {
 }
 
 // Cubre RF14 (la identificación no se repite dentro de la clínica)
-// Una identificación repetida llega del almacén como conflicto genérico
-// El servicio la traduce a un mensaje que dice qué pasó
+//
+// Una identificación repetida llega del almacén como un conflicto genérico, y
+// el servicio la traduce a un mensaje que dice qué pasó.
 func TestCreatePatientDuplicateIdentificationIsAConflict(t *testing.T) {
 	patients, store, _, _ := newTestPatients()
 	store.err = fmt.Errorf("%w: unique_violation", apperr.ErrConflict)
@@ -243,8 +248,9 @@ func TestCreatePatientDuplicateIdentificationIsAConflict(t *testing.T) {
 }
 
 // Cubre RF18 (la escritura y su evento de auditoría son atómicos)
-// Si la auditoría falla, el alta falla
-// Con la transacción real esto revierte el paciente
+//
+// Si la auditoría falla, el alta falla. Con la transacción real, eso revierte
+// el paciente.
 func TestCreatePatientFailsWhenTheAuditFails(t *testing.T) {
 	patients, _, _, audit := newTestPatients()
 	audit.err = errors.New("outbox no disponible")
@@ -260,8 +266,9 @@ func TestCreatePatientFailsWhenTheAuditFails(t *testing.T) {
 }
 
 // Cubre RF14 (fecha de nacimiento válida)
-// Reglas de la fecha de nacimiento
-// La fecha actual de las pruebas es 2026-11-14
+//
+// Reglas de la fecha de nacimiento. La fecha actual de las pruebas es
+// 2026-11-14.
 func TestBirthDateRules(t *testing.T) {
 	tests := []struct {
 		value string
@@ -298,8 +305,8 @@ func TestBirthDateRules(t *testing.T) {
 }
 
 // Cubre RF14 (datos de contacto del paciente)
-// El contacto es opcional
-// Si viene, debe tener un formato válido
+//
+// El contacto es opcional, pero si viene debe tener un formato válido.
 func TestContactValidation(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -336,7 +343,8 @@ func TestContactValidation(t *testing.T) {
 }
 
 // Cubre RF14 (actualizar pacientes)
-// Las actualizaciones inválidas se rechazan antes de la transacción
+//
+// Las actualizaciones inválidas se rechazan antes de la transacción.
 func TestUpdatePatientValidation(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -370,8 +378,10 @@ func TestUpdatePatientValidation(t *testing.T) {
 
 // Cubre RF14 (actualizar pacientes)
 // Cubre RF18 (auditoría de la escritura de contacto)
-// Una actualización válida conserva la diferencia entre "no enviado" y "enviado vacío"
-// El id se normaliza y el cambio se audita como escritura de contacto
+//
+// Una actualización válida conserva la diferencia entre "no enviado" y
+// "enviado vacío". El id se normaliza y el cambio se audita como escritura de
+// contacto.
 func TestUpdatePatientKeepsOmittedFieldsAndAudits(t *testing.T) {
 	patients, store, _, audit := newTestPatients()
 
@@ -413,7 +423,8 @@ func TestUpdatePatientKeepsOmittedFieldsAndAudits(t *testing.T) {
 
 // Cubre RF14 (actualizar pacientes)
 // Cubre RF18 (una operación fallida no deja evento)
-// Un paciente que no existe en la clínica no deja ningún evento de auditoría
+//
+// Un paciente que no existe en la clínica no deja ningún evento de auditoría.
 func TestUpdatePatientNotFoundWritesNoAudit(t *testing.T) {
 	patients, store, _, audit := newTestPatients()
 	store.err = fmt.Errorf("%w: no rows", apperr.ErrNotFound)
@@ -431,8 +442,9 @@ func TestUpdatePatientNotFoundWritesNoAudit(t *testing.T) {
 // Cubre RF14 (consultar un paciente)
 // Cubre RF18 (auditoría de la lectura de contacto)
 // Cubre I5 (la lectura filtra por la clínica del actor)
-// Leer un paciente audita la lectura de su contacto
-// La transacción es de lectura y escritura porque escribe el evento
+//
+// Leer un paciente audita la lectura de su contacto. La transacción es de
+// lectura y escritura porque escribe el evento.
 func TestGetPatientAuditsTheRead(t *testing.T) {
 	patients, store, tx, audit := newTestPatients()
 
@@ -459,7 +471,8 @@ func TestGetPatientAuditsTheRead(t *testing.T) {
 }
 
 // Cubre RF18 (la lectura y su evento de auditoría son atómicos)
-// El contacto no se entrega si la lectura no se pudo auditar
+//
+// El contacto no se entrega si la lectura no se pudo auditar.
 func TestGetPatientIsNotReturnedWhenTheAuditFails(t *testing.T) {
 	patients, _, _, audit := newTestPatients()
 	audit.err = errors.New("outbox no disponible")
@@ -476,8 +489,9 @@ func TestGetPatientIsNotReturnedWhenTheAuditFails(t *testing.T) {
 
 // Cubre RF14 (consultar un paciente)
 // Cubre RF18 (una lectura fallida no deja evento)
-// Un id mal formado se rechaza antes de abrir la transacción
-// Un paciente inexistente no deja evento
+//
+// Un id mal formado se rechaza antes de abrir la transacción, y un paciente
+// inexistente no deja evento.
 func TestGetPatientRejectsBadIDsAndWritesNoAuditWhenMissing(t *testing.T) {
 	patients, store, tx, audit := newTestPatients()
 
@@ -502,8 +516,9 @@ func TestGetPatientRejectsBadIDsAndWritesNoAuditWhenMissing(t *testing.T) {
 
 // Cubre RF14 (consultar pacientes)
 // Cubre RF18 (el listado no expone contacto, así que no genera eventos)
-// El listado no devuelve contacto, así que no audita
-// Usa una transacción de solo lectura
+//
+// El listado no devuelve contacto, así que no audita y usa una transacción de
+// solo lectura.
 func TestListPatientsDoesNotAudit(t *testing.T) {
 	patients, store, tx, audit := newTestPatients()
 
@@ -525,7 +540,8 @@ func TestListPatientsDoesNotAudit(t *testing.T) {
 }
 
 // Cubre RF14 (consultar pacientes)
-// El límite del listado tiene un valor por defecto y un máximo
+//
+// El límite del listado tiene un valor por defecto y un máximo.
 func TestListPatientsLimits(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -553,7 +569,9 @@ func TestListPatientsLimits(t *testing.T) {
 }
 
 // Cubre RF14 (consultar pacientes)
-// Un límite negativo o una búsqueda demasiado larga se rechazan sin consultar la base
+//
+// Un límite negativo o una búsqueda demasiado larga se rechazan sin consultar
+// la base.
 func TestListPatientsRejectsInvalidFilters(t *testing.T) {
 	patients, store, _, _ := newTestPatients()
 
@@ -571,9 +589,10 @@ func TestListPatientsRejectsInvalidFilters(t *testing.T) {
 }
 
 // Cubre I5 (ningún dato de una clínica es accesible desde otra)
-// Con un actor de la clínica B, las cuatro operaciones llegan al almacén con la clínica B
-// La transacción y el evento de auditoría también llevan la clínica B
-// La clínica sale siempre del actor autenticado, nunca de la petición
+//
+// Con un actor de la clínica B, las cuatro operaciones llegan al almacén con
+// la clínica B, y la transacción y el evento de auditoría también. La clínica
+// sale siempre del actor autenticado, nunca de la petición.
 func TestPatientsAlwaysUseTheActorsClinic(t *testing.T) {
 	patients, store, tx, audit := newTestPatients()
 	ctx := context.Background()
@@ -601,7 +620,7 @@ func TestPatientsAlwaysUseTheActorsClinic(t *testing.T) {
 		t.Fatalf("List: %v", err)
 	}
 
-	// Cuatro operaciones deben producir cuatro llamadas al almacén
+	// Cuatro operaciones deben producir cuatro llamadas al almacén.
 	if len(store.clinicIDs) != 4 {
 		t.Fatalf("llamadas al almacén = %d, want 4", len(store.clinicIDs))
 	}
@@ -618,7 +637,7 @@ func TestPatientsAlwaysUseTheActorsClinic(t *testing.T) {
 		}
 	}
 
-	// Create, Update y Get auditan, y List no
+	// Create, Update y Get auditan, y List no.
 	if len(audit.events) != 3 {
 		t.Fatalf("eventos = %d, want 3", len(audit.events))
 	}
@@ -631,8 +650,10 @@ func TestPatientsAlwaysUseTheActorsClinic(t *testing.T) {
 }
 
 // Cubre I5 (ningún dato de una clínica es accesible desde otra)
-// Las entradas de pacientes no tienen ningún campo de clínica
-// Así la clínica no se puede forzar desde el cuerpo ni desde los filtros de la petición
+//
+// Las entradas de pacientes no tienen ningún campo de clínica, así que la
+// clínica no se puede forzar desde el cuerpo ni desde los filtros de la
+// petición.
 func TestPatientInputsHaveNoClinicField(t *testing.T) {
 	inputs := []any{NewPatient{}, PatientUpdate{}, PatientFilter{}}
 
@@ -648,7 +669,8 @@ func TestPatientInputsHaveNoClinicField(t *testing.T) {
 }
 
 // Cubre RF14 (búsqueda de pacientes)
-// Los comodines de LIKE se tratan como texto literal
+//
+// Los comodines de LIKE se tratan como texto literal.
 func TestEscapeLike(t *testing.T) {
 	tests := []struct {
 		in   string

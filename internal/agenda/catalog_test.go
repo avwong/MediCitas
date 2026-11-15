@@ -15,8 +15,8 @@ const (
 	userID  = "44444444-aaaa-4444-8444-444444444444"
 )
 
-// recordingStore only records calls; the SQL is exercised by integration
-// tests against the real database.
+// recordingStore solo registra las llamadas; el SQL se ejercita en las pruebas
+// de integración contra la base real.
 type recordingStore struct {
 	CatalogStore
 	createdServices      []NewMedicalService

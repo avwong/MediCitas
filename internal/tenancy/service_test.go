@@ -13,7 +13,7 @@ import (
 
 const testClinicID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 
-// fakeStore records what the saga did to the database.
+// fakeStore registra lo que la saga hizo en la base de datos.
 type fakeStore struct {
 	inserted       []Clinic
 	deletedClinics []string
