@@ -32,6 +32,9 @@ run "P1 API integration" \
 run "Agenda API integration" \
   docker compose --profile test run --build --rm agenda-api-integration-test
 
+run "Tenant isolation leaks" \
+  docker compose --profile test run --build --rm leak-integration-test
+
 run "Database privilege boundaries" \
   docker compose --profile test run --rm db-security-test
 
