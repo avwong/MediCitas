@@ -58,8 +58,16 @@ Usuarios de prueba:
 | `clinic.admin` | `Clinic123!` | `clinic_admin` | Clínica Demo |
 | `reception` | `Reception123!` | `reception` | Clínica Demo |
 | `practitioner` | `Practitioner123!` | `practitioner` | Clínica Demo |
+| `practitioner2` | `Practitioner123!` | `practitioner` | Clínica Demo |
+| `practitioner3` | `Practitioner123!` | `practitioner` | Clínica Demo |
 | `norte.admin` | `Norte123!` | `clinic_admin` | Clínica Norte |
 | `norte.reception` | `Norte123!` | `reception` | Clínica Norte |
+| `norte.practitioner1`, `norte.practitioner2`, `norte.practitioner3` | `Norte123!` | `practitioner` | Clínica Norte |
+| `sur.admin` | `Sur123!` | `clinic_admin` | Clínica Sur |
+| `sur.reception` | `Sur123!` | `reception` | Clínica Sur |
+| `sur.practitioner1`, `sur.practitioner2`, `sur.practitioner3` | `Sur123!` | `practitioner` | Clínica Sur |
+
+La semilla crea tres clínicas (Demo, Norte y Sur). Cada una tiene su administrador, su recepción y tres profesionales, y cada profesional atiende los servicios de su especialidad. Los profesionales de Agenda coinciden con usuarios de Tenancy y de Keycloak. La Clínica Sur usa la zona horaria `America/Bogota`, para probar que cada clínica respeta la suya.
 
 Reglas que aplican todos los servicios:
 
@@ -127,7 +135,7 @@ Reglas de los pacientes:
 - El listado devuelve un resumen **sin datos de contacto** (`id`, `identification`, `first_name`, `last_name`, `birth_date`, `active`), por lo que no se audita.
 - Cada creación, actualización y lectura de un paciente con sus datos de contacto escribe `patient_contact.write` o `patient_contact.read` en `audit_outbox`, dentro de la misma transacción. Si el evento no se puede guardar, la operación no se completa. El evento lleva solo identificadores, nunca los valores de contacto.
 
-La semilla incluye 9 pacientes de ejemplo: 6 en Clínica Demo y 3 en Clínica Norte.
+La semilla incluye 13 pacientes de ejemplo: 6 en Clínica Demo, 3 en Clínica Norte y 4 en Clínica Sur.
 
 RF5–RF13, RF16, RF20 y RF21 pertenecen a Agenda y se incorporarán sobre esta misma frontera de servicio.
 

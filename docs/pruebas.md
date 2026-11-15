@@ -101,7 +101,7 @@ Verifica que:
 - las rutas de Expediente están restringidas a profesionales;
 - nginx no expone las rutas `/internal`, ni siquiera a una cuenta de servicio válida.
 
-Usa las dos clínicas de la semilla. Última línea esperada: `All P1 API integration checks passed.`
+Usa las clínicas Demo y Norte de la semilla. Última línea esperada: `All P1 API integration checks passed.`
 
 ### 3.4 Entrega real de los relays hacia Auditoría
 
