@@ -85,6 +85,17 @@ func ActorFrom(c *gin.Context) (Actor, bool) {
 	return actor, ok
 }
 
+// CurrentActor devuelve el actor de la petición y responde 401 si no hay
+// ninguno. Los handlers lo usan para no repetir esa comprobación.
+func CurrentActor(c *gin.Context) (Actor, bool) {
+	actor, ok := ActorFrom(c)
+	if !ok {
+		unauthorized(c)
+	}
+
+	return actor, ok
+}
+
 func bearerToken(header string) (string, bool) {
 	parts := strings.Fields(header)
 	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {

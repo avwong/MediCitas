@@ -52,12 +52,8 @@ func (h *Handler) RegisterRoutes(
 
 // Ingest handles POST /internal/audit/events.
 func (h *Handler) Ingest(c *gin.Context) {
-	actor, ok := auth.ActorFrom(c)
+	actor, ok := auth.CurrentActor(c)
 	if !ok {
-		c.AbortWithStatusJSON(
-			http.StatusUnauthorized,
-			gin.H{"error": "unauthorized"},
-		)
 		return
 	}
 
@@ -90,12 +86,8 @@ func (h *Handler) Ingest(c *gin.Context) {
 
 // List handles GET /api/v1/audit.
 func (h *Handler) List(c *gin.Context) {
-	actor, ok := auth.ActorFrom(c)
+	actor, ok := auth.CurrentActor(c)
 	if !ok {
-		c.AbortWithStatusJSON(
-			http.StatusUnauthorized,
-			gin.H{"error": "unauthorized"},
-		)
 		return
 	}
 

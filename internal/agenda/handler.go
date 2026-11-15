@@ -97,7 +97,7 @@ func (h *Handler) DeprovisionClinic(c *gin.Context) {
 
 // CreateService handles POST /api/v1/services.
 func (h *Handler) CreateService(c *gin.Context) {
-	actor, ok := h.actor(c)
+	actor, ok := auth.CurrentActor(c)
 	if !ok {
 		return
 	}
@@ -122,7 +122,7 @@ func (h *Handler) CreateService(c *gin.Context) {
 
 // ListServices handles GET /api/v1/services.
 func (h *Handler) ListServices(c *gin.Context) {
-	actor, ok := h.actor(c)
+	actor, ok := auth.CurrentActor(c)
 	if !ok {
 		return
 	}
@@ -138,7 +138,7 @@ func (h *Handler) ListServices(c *gin.Context) {
 
 // GetService handles GET /api/v1/services/:id.
 func (h *Handler) GetService(c *gin.Context) {
-	actor, ok := h.actor(c)
+	actor, ok := auth.CurrentActor(c)
 	if !ok {
 		return
 	}
@@ -154,7 +154,7 @@ func (h *Handler) GetService(c *gin.Context) {
 
 // DeactivateService handles DELETE /api/v1/services/:id.
 func (h *Handler) DeactivateService(c *gin.Context) {
-	actor, ok := h.actor(c)
+	actor, ok := auth.CurrentActor(c)
 	if !ok {
 		return
 	}
@@ -169,7 +169,7 @@ func (h *Handler) DeactivateService(c *gin.Context) {
 
 // CreatePractitioner handles POST /api/v1/practitioners.
 func (h *Handler) CreatePractitioner(c *gin.Context) {
-	actor, ok := h.actor(c)
+	actor, ok := auth.CurrentActor(c)
 	if !ok {
 		return
 	}
@@ -199,7 +199,7 @@ func (h *Handler) CreatePractitioner(c *gin.Context) {
 
 // ListPractitioners handles GET /api/v1/practitioners.
 func (h *Handler) ListPractitioners(c *gin.Context) {
-	actor, ok := h.actor(c)
+	actor, ok := auth.CurrentActor(c)
 	if !ok {
 		return
 	}
@@ -215,7 +215,7 @@ func (h *Handler) ListPractitioners(c *gin.Context) {
 
 // GetPractitioner handles GET /api/v1/practitioners/:id.
 func (h *Handler) GetPractitioner(c *gin.Context) {
-	actor, ok := h.actor(c)
+	actor, ok := auth.CurrentActor(c)
 	if !ok {
 		return
 	}
@@ -231,7 +231,7 @@ func (h *Handler) GetPractitioner(c *gin.Context) {
 
 // ReplacePractitionerServices handles PUT /api/v1/practitioners/:id/services.
 func (h *Handler) ReplacePractitionerServices(c *gin.Context) {
-	actor, ok := h.actor(c)
+	actor, ok := auth.CurrentActor(c)
 	if !ok {
 		return
 	}
@@ -253,14 +253,4 @@ func (h *Handler) ReplacePractitionerServices(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, practitioner)
-}
-
-func (h *Handler) actor(c *gin.Context) (auth.Actor, bool) {
-	actor, ok := auth.ActorFrom(c)
-	if !ok {
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
-		return auth.Actor{}, false
-	}
-
-	return actor, true
 }

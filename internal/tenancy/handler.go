@@ -78,7 +78,7 @@ type updateRoleRequest struct {
 // Me handles GET /api/v1/me: who the caller is according to the token, and
 // their local record.
 func (h *Handler) Me(c *gin.Context) {
-	actor, ok := h.actor(c)
+	actor, ok := auth.CurrentActor(c)
 	if !ok {
 		return
 	}
@@ -139,7 +139,7 @@ func (h *Handler) ListClinics(c *gin.Context) {
 
 // CreateUser handles POST /api/v1/users.
 func (h *Handler) CreateUser(c *gin.Context) {
-	actor, ok := h.actor(c)
+	actor, ok := auth.CurrentActor(c)
 	if !ok {
 		return
 	}
@@ -163,7 +163,7 @@ func (h *Handler) CreateUser(c *gin.Context) {
 
 // ListUsers handles GET /api/v1/users.
 func (h *Handler) ListUsers(c *gin.Context) {
-	actor, ok := h.actor(c)
+	actor, ok := auth.CurrentActor(c)
 	if !ok {
 		return
 	}
@@ -179,7 +179,7 @@ func (h *Handler) ListUsers(c *gin.Context) {
 
 // GetUser handles GET /api/v1/users/:id.
 func (h *Handler) GetUser(c *gin.Context) {
-	actor, ok := h.actor(c)
+	actor, ok := auth.CurrentActor(c)
 	if !ok {
 		return
 	}
@@ -195,7 +195,7 @@ func (h *Handler) GetUser(c *gin.Context) {
 
 // UpdateUserRole handles PATCH /api/v1/users/:id/role.
 func (h *Handler) UpdateUserRole(c *gin.Context) {
-	actor, ok := h.actor(c)
+	actor, ok := auth.CurrentActor(c)
 	if !ok {
 		return
 	}
@@ -216,7 +216,7 @@ func (h *Handler) UpdateUserRole(c *gin.Context) {
 
 // DeactivateUser handles DELETE /api/v1/users/:id (logical delete).
 func (h *Handler) DeactivateUser(c *gin.Context) {
-	actor, ok := h.actor(c)
+	actor, ok := auth.CurrentActor(c)
 	if !ok {
 		return
 	}
@@ -227,14 +227,4 @@ func (h *Handler) DeactivateUser(c *gin.Context) {
 	}
 
 	c.Status(http.StatusNoContent)
-}
-
-func (h *Handler) actor(c *gin.Context) (auth.Actor, bool) {
-	actor, ok := auth.ActorFrom(c)
-	if !ok {
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
-		return auth.Actor{}, false
-	}
-
-	return actor, true
 }

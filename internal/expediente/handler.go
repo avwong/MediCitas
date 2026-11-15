@@ -43,7 +43,7 @@ type createClinicalNoteRequest struct {
 
 // Create handles POST /api/v1/clinical-notes.
 func (h *Handler) Create(c *gin.Context) {
-	actor, ok := h.actor(c)
+	actor, ok := auth.CurrentActor(c)
 	if !ok {
 		return
 	}
@@ -71,7 +71,7 @@ func (h *Handler) Create(c *gin.Context) {
 
 // Get handles GET /api/v1/clinical-notes/:id.
 func (h *Handler) Get(c *gin.Context) {
-	actor, ok := h.actor(c)
+	actor, ok := auth.CurrentActor(c)
 	if !ok {
 		return
 	}
@@ -87,17 +87,4 @@ func (h *Handler) Get(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, note)
-}
-
-func (h *Handler) actor(c *gin.Context) (auth.Actor, bool) {
-	actor, ok := auth.ActorFrom(c)
-	if !ok {
-		c.AbortWithStatusJSON(
-			http.StatusUnauthorized,
-			gin.H{"error": "unauthorized"},
-		)
-		return auth.Actor{}, false
-	}
-
-	return actor, true
 }

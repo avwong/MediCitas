@@ -65,7 +65,7 @@ type updatePatientRequest struct {
 
 // CreatePatient atiende POST /api/v1/patients
 func (h *PatientHandler) CreatePatient(c *gin.Context) {
-	actor, ok := h.actor(c)
+	actor, ok := auth.CurrentActor(c)
 	if !ok {
 		return
 	}
@@ -94,7 +94,7 @@ func (h *PatientHandler) CreatePatient(c *gin.Context) {
 
 // UpdatePatient atiende PATCH /api/v1/patients/:id
 func (h *PatientHandler) UpdatePatient(c *gin.Context) {
-	actor, ok := h.actor(c)
+	actor, ok := auth.CurrentActor(c)
 	if !ok {
 		return
 	}
@@ -125,7 +125,7 @@ func (h *PatientHandler) UpdatePatient(c *gin.Context) {
 // Devuelve el paciente con sus datos de contacto
 // Esta lectura queda registrada en la bitácora de auditoría
 func (h *PatientHandler) GetPatient(c *gin.Context) {
-	actor, ok := h.actor(c)
+	actor, ok := auth.CurrentActor(c)
 	if !ok {
 		return
 	}
@@ -143,7 +143,7 @@ func (h *PatientHandler) GetPatient(c *gin.Context) {
 // Acepta los parámetros opcionales q (búsqueda por prefijo) y limit
 // Devuelve solo datos básicos, sin contacto
 func (h *PatientHandler) ListPatients(c *gin.Context) {
-	actor, ok := h.actor(c)
+	actor, ok := auth.CurrentActor(c)
 	if !ok {
 		return
 	}
@@ -170,16 +170,4 @@ func (h *PatientHandler) ListPatients(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"items": patients})
-}
-
-// actor obtiene al usuario autenticado del contexto de la petición
-// Si no hay, responde 401
-func (h *PatientHandler) actor(c *gin.Context) (auth.Actor, bool) {
-	actor, ok := auth.ActorFrom(c)
-	if !ok {
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
-		return auth.Actor{}, false
-	}
-
-	return actor, true
 }
