@@ -8,7 +8,7 @@ Este documento reúne el diseño de MediCitas: el modelo de datos, la estrategia
 |---|---|
 | 1. Modelo de datos: diagramas ER, 3FN y desnormalizaciones | Completo para las tablas existentes |
 | 1.5 Índices por especialidad: medición | Completo |
-| 1.6 Diccionario de datos | Pendiente |
+| 1.6 Diccionario de datos | Completo |
 | 2. Multi-tenancy: comparación y decisión | Completo, con RLS implementado en `agenda_db` y medido |
 | 3. Arquitectura de servicios | Completo; el detalle de concurrencia y caché está en `concurrencia-y-cache.md` |
 | 4. Seguridad de la base de datos y auditoría | Completo |
@@ -392,9 +392,254 @@ La migración `0003` crea dos índices sobre `(clinic_id, specialty_id)`: `idx_s
 
 > **Advertencia sobre los contadores.** `pg_stat_user_indexes` muestra cientos de usos de ambos índices después de correr las pruebas. Esa cifra no prueba que sean útiles: con tablas de decenas de filas, el optimizador elige el plan casi sin diferencia de costo, y cualquier plan es igual de rápido.
 
-### 1.6 Pendiente
+### 1.6 Diccionario de datos
 
-- **Diccionario de datos** de las cuatro bases, que irá en esta sección.
+Describe todas las tablas de las cuatro bases, columna por columna. Se armó leyendo el esquema real de PostgreSQL (migraciones `0001` a `0009` de Agenda, `0001` de Tenancy y Auditoría, `0001` y `0002` de Expediente), no de memoria. La columna *Nulo* dice si admite `NULL`.
+
+**Convenciones**
+
+- Todo `id` es `uuid` y lo genera la base con `gen_random_uuid()`, salvo que se diga otra cosa.
+- **PK** es llave primaria, **UQ** restricción única y **FK** llave foránea. Una FK compuesta `(clinic_id, id)` es la que impide, en el motor, apuntar a una fila de otra clínica (I5, sección 2).
+- Las fechas con hora son `timestamptz`: guardan un instante absoluto. Los horarios semanales (`schedules`) son la excepción: guardan hora de pared en la zona de la clínica.
+- Las nueve tablas de Agenda con datos de clínica tienen además una política de RLS por `clinic_id` (sección 2.7), que no se repite en cada tabla. Los `audit_outbox` quedan fuera a propósito.
+
+**Entidades que pide el enunciado, y dónde viven**
+
+| Entidad | Tabla | Base |
+|---|---|---|
+| Clínica | `clinics` | `tenancy_db` (fuente de verdad). Agenda guarda una proyección |
+| Usuario | `users` | `tenancy_db` |
+| Rol | `roles` | `tenancy_db` |
+| Profesional | `practitioners` y `practitioner_services` | `agenda_db` |
+| Servicio | `services` (y `specialties`) | `agenda_db` |
+| Horario de atención | `schedules` | `agenda_db` |
+| Bloqueo de agenda | `blocks` | `agenda_db` |
+| Paciente | `patients` | `agenda_db` |
+| Cita | `appointments` | `agenda_db` |
+| Nota clínica | `clinical_notes` | `expediente_db` |
+| Registro de auditoría | `audit_log` (y los `audit_outbox` de origen) | `audit_db` |
+
+Las credenciales no están en ninguna tabla: las administra Keycloak. La entidad usuario guarda solo el identificador que Keycloak emite, la clínica y el rol.
+
+#### `tenancy_db`
+
+**`clinics`**: una clínica de la plataforma (RF1).
+
+| Columna | Tipo | Nulo | Descripción |
+|---|---|---|---|
+| `id` | `uuid` | NO | **PK.** Identificador de la clínica. Es el valor que viaja firmado en el claim `clinic_id` del token |
+| `identifier` | `varchar(64)` | NO | **UQ.** Identificador legible, por ejemplo `clinic-demo`. Solo minúsculas, dígitos y guiones, y empieza por letra o dígito (`CHECK`) |
+| `name` | `varchar(160)` | NO | Nombre de la clínica |
+| `timezone` | `varchar(64)` | NO | Zona horaria IANA, por ejemplo `America/Costa_Rica`. Agenda la usa para interpretar horarios y días |
+| `status` | `varchar(16)` | NO | `provisioning` mientras corre la saga de alta (proyección en Agenda y administrador en Keycloak) y `active` al terminar. Por omisión, `provisioning` |
+| `created_at` | `timestamptz` | NO | Cuándo se creó. Por omisión, `now()` |
+
+**`roles`**: los cuatro roles del sistema.
+
+| Columna | Tipo | Nulo | Descripción |
+|---|---|---|---|
+| `code` | `varchar(32)` | NO | **PK.** `platform_admin`, `clinic_admin`, `reception` o `practitioner` |
+| `description` | `text` | NO | Descripción del rol |
+
+**`users`**: la identidad de cada usuario y a qué clínica pertenece (RF2).
+
+| Columna | Tipo | Nulo | Descripción |
+|---|---|---|---|
+| `id` | `uuid` | NO | **PK.** Identificador local del usuario |
+| `keycloak_subject` | `varchar(64)` | NO | **UQ.** El `sub` que Keycloak emite, que identifica al usuario en su token |
+| `username` | `varchar(64)` | NO | **UQ.** Nombre de usuario |
+| `clinic_id` | `uuid` | SÍ | **FK** a `clinics(id)` (`ON DELETE RESTRICT`). `NULL` solo para `platform_admin` |
+| `role_code` | `varchar(32)` | NO | **FK** a `roles(code)`. Copia del rol de realm de Keycloak, que es la fuente de verdad. Se actualiza después de Keycloak en cada cambio de rol |
+| `active` | `boolean` | NO | `false` tras la baja lógica. Por omisión, `true` |
+| `created_at` | `timestamptz` | NO | Alta del registro |
+| `updated_at` | `timestamptz` | NO | Última modificación |
+
+Restricción `users_tenant_role_check`: `platform_admin` exige `clinic_id` nulo, y cualquier otro rol exige `clinic_id`. Así un usuario de clínica nunca queda sin clínica.
+
+#### `agenda_db`
+
+**`clinics`**: proyección local de las clínicas. Tenancy es la fuente de verdad y la provisiona aquí (ver la desnormalización 2 en 1.4).
+
+| Columna | Tipo | Nulo | Descripción |
+|---|---|---|---|
+| `id` | `uuid` | NO | **PK.** El mismo `id` de `tenancy_db.clinics`. No tiene valor por omisión: lo entrega Tenancy |
+| `timezone` | `varchar(64)` | NO | Copia de la zona horaria de la clínica |
+| `provisioned_at` | `timestamptz` | NO | Cuándo se provisionó la clínica en Agenda |
+
+**`specialties`**: especialidades médicas de cada clínica (ver el caso trabajado en 1.3).
+
+| Columna | Tipo | Nulo | Descripción |
+|---|---|---|---|
+| `id` | `uuid` | NO | **PK** |
+| `clinic_id` | `uuid` | NO | **FK** a `clinics(id)`. **UQ** `(clinic_id, id)`, para que otras tablas la referencien de forma compuesta |
+| `name` | `varchar(120)` | NO | Nombre, por ejemplo «Medicina general». Único dentro de la clínica sin distinguir mayúsculas, con un índice único sobre `(clinic_id, lower(name))` |
+| `created_at` | `timestamptz` | NO | Alta |
+
+**`services`**: tipos de consulta de la clínica y su duración (RF3).
+
+| Columna | Tipo | Nulo | Descripción |
+|---|---|---|---|
+| `id` | `uuid` | NO | **PK** |
+| `clinic_id` | `uuid` | NO | **FK** a `clinics(id)`. **UQ** `(clinic_id, id)` |
+| `name` | `varchar(120)` | NO | Nombre del servicio. **UQ** `(clinic_id, name)` |
+| `duration_minutes` | `integer` | NO | Duración en minutos, de 1 a 480 (`CHECK`). Determina el tamaño del espacio que ocupa una cita (I4) |
+| `specialty_id` | `uuid` | NO | **FK** compuesta `(clinic_id, specialty_id)` a `specialties` (`RESTRICT`). La especialidad que el servicio requiere |
+| `active` | `boolean` | NO | `false` cuando el servicio se retira del catálogo. Por omisión, `true` |
+| `created_at` | `timestamptz` | NO | Alta |
+
+**`practitioners`**: profesionales de salud de la clínica (RF4).
+
+| Columna | Tipo | Nulo | Descripción |
+|---|---|---|---|
+| `id` | `uuid` | NO | **PK** |
+| `clinic_id` | `uuid` | NO | **FK** a `clinics(id)`. **UQ** `(clinic_id, id)` |
+| `user_id` | `uuid` | NO | **UQ.** El usuario de Tenancy que es este profesional. Sin FK, porque vive en otra base: se valida al registrar al profesional |
+| `user_subject` | `varchar(64)` | NO | **UQ.** El `sub` de Keycloak del usuario. Sirve para reconocer a un profesional por su token |
+| `display_name` | `varchar(160)` | NO | Nombre con el que se muestra, por ejemplo «Dra. Ana Prueba» |
+| `specialty_id` | `uuid` | NO | **FK** compuesta `(clinic_id, specialty_id)` a `specialties` (`RESTRICT`) |
+| `active` | `boolean` | NO | `false` si el usuario deja de ser profesional o se da de baja. Por omisión, `true` |
+| `created_at` | `timestamptz` | NO | Alta |
+
+**`practitioner_services`**: qué servicios atiende cada profesional (tabla de unión). Lleva `clinic_id` a propósito, para que las dos llaves foráneas sean compuestas (desnormalización 1 de 1.4).
+
+| Columna | Tipo | Nulo | Descripción |
+|---|---|---|---|
+| `clinic_id` | `uuid` | NO | Clínica de ambos lados |
+| `practitioner_id` | `uuid` | NO | **PK** con `service_id`. **FK** compuesta a `practitioners` (`ON DELETE CASCADE`) |
+| `service_id` | `uuid` | NO | **PK** con `practitioner_id`. **FK** compuesta a `services` (`RESTRICT`) |
+
+**`patients`**: pacientes de la clínica (RF14). El paciente no es usuario del sistema. `phone`, `email` y `address` son datos de contacto: toda lectura o escritura se audita (RF18).
+
+| Columna | Tipo | Nulo | Descripción |
+|---|---|---|---|
+| `id` | `uuid` | NO | **PK** |
+| `clinic_id` | `uuid` | NO | **FK** a `clinics(id)`. **UQ** `(clinic_id, id)` |
+| `identification` | `varchar(40)` | NO | Cédula o documento. **UQ** `(clinic_id, identification)`: única dentro de la clínica, y puede repetirse entre clínicas |
+| `first_name` | `varchar(80)` | NO | Nombre. No puede quedar vacío |
+| `last_name` | `varchar(120)` | NO | Apellidos. No puede quedar vacío |
+| `birth_date` | `date` | NO | Fecha de nacimiento, desde 1900 (`CHECK`). Que no sea futura lo valida la aplicación, porque depende de la fecha actual |
+| `phone` | `varchar(30)` | SÍ | Teléfono. Dato de contacto |
+| `email` | `varchar(254)` | SÍ | Correo. Dato de contacto |
+| `address` | `varchar(300)` | SÍ | Dirección. Dato de contacto |
+| `active` | `boolean` | NO | Por omisión, `true` |
+| `created_at` | `timestamptz` | NO | Alta |
+| `updated_at` | `timestamptz` | NO | Última modificación |
+
+**`schedules`**: horario de atención semanal y vigente de cada profesional (RF5). Cada fila es un bloque en un día de la semana, así que una jornada partida son dos filas. No guarda historia.
+
+| Columna | Tipo | Nulo | Descripción |
+|---|---|---|---|
+| `id` | `uuid` | NO | **PK.** **UQ** `(clinic_id, id)` |
+| `clinic_id` | `uuid` | NO | Clínica del profesional |
+| `practitioner_id` | `uuid` | NO | **FK** compuesta a `practitioners` (`ON DELETE CASCADE`) |
+| `weekday` | `smallint` | NO | Día de la semana según ISO 8601: 1 es lunes y 7 es domingo (`CHECK`) |
+| `start_time` | `time` | NO | Hora de inicio, en hora de pared de la zona de la clínica |
+| `end_time` | `time` | NO | Hora de fin, mayor que la de inicio. Un bloque no cruza la medianoche |
+| `created_at` | `timestamptz` | NO | Alta |
+
+Restricción de exclusión `schedules_no_overlap`: dos bloques del mismo profesional no se solapan en un mismo día. El rango es `[inicio, fin)`, así que 08:00–12:00 y 12:00–17:00 son válidos.
+
+**`blocks`**: bloqueos de agenda por vacaciones o permisos (RF6). Retiran la disponibilidad pero no cancelan citas.
+
+| Columna | Tipo | Nulo | Descripción |
+|---|---|---|---|
+| `id` | `uuid` | NO | **PK.** **UQ** `(clinic_id, id)` |
+| `clinic_id` | `uuid` | NO | Clínica del profesional |
+| `practitioner_id` | `uuid` | NO | **FK** compuesta a `practitioners` (`ON DELETE CASCADE`) |
+| `starts_at` | `timestamptz` | NO | Inicio del bloqueo, como instante absoluto |
+| `ends_at` | `timestamptz` | NO | Fin del bloqueo, posterior al inicio (`CHECK`) |
+| `reason` | `varchar(200)` | NO | Motivo, por ejemplo «Vacaciones». No puede quedar vacío |
+| `created_by` | `varchar(64)` | NO | Subject de Keycloak de quien lo registró: el administrador o el propio profesional |
+| `created_at` | `timestamptz` | NO | Alta |
+
+Dos bloqueos del mismo profesional pueden solaparse. No hay restricción contra `appointments`: las citas que caen dentro se listan como conflictos.
+
+**`appointments`**: citas y su ciclo de vida (RF9 a RF13). Solo `status = 'booked'` ocupa espacio en la agenda.
+
+| Columna | Tipo | Nulo | Descripción |
+|---|---|---|---|
+| `id` | `uuid` | NO | **PK.** **UQ** `(clinic_id, id)` |
+| `clinic_id` | `uuid` | NO | Clínica de la cita |
+| `patient_id` | `uuid` | NO | **FK** compuesta a `patients` (`RESTRICT`) |
+| `practitioner_id` | `uuid` | NO | **FK** compuesta a `practitioners` (`RESTRICT`) |
+| `service_id` | `uuid` | NO | **FK** compuesta a `services` (`RESTRICT`). No se referencia `practitioner_services`: esa asociación se puede quitar después y la cita debe seguir existiendo |
+| `starts_at` | `timestamptz` | NO | Inicio de la cita |
+| `ends_at` | `timestamptz` | NO | Fin de la cita. Lo calcula un trigger a partir de `starts_at` y la duración del servicio, y el valor que envíe la aplicación se ignora (I4) |
+| `status` | `varchar(16)` | NO | `booked` (vigente), `attended`, `no_show`, `cancelled` o `rescheduled` (los cuatro finales). Por omisión, `booked` |
+| `rescheduled_from_id` | `uuid` | SÍ | **FK** compuesta a `appointments` y **UQ**. En la cita nueva de una reprogramación, apunta a la anterior. Una cita se reprograma a lo sumo una vez |
+| `created_by` | `varchar(64)` | NO | Subject de Keycloak de quien reservó |
+| `created_at` | `timestamptz` | NO | Cuándo se reservó |
+| `closed_by` | `varchar(64)` | SÍ | Subject de quien la cerró. `NULL` mientras está `booked` |
+| `closed_at` | `timestamptz` | SÍ | Cuándo se cerró. `NULL` mientras está `booked`. Para `attended` y `no_show` no puede ser anterior a `starts_at` (RF12) |
+| `cancellation_reason` | `varchar(300)` | SÍ | Motivo de la cancelación. Obligatorio si `cancelled` y prohibido en los demás estados (RF11) |
+
+Reglas del motor sobre esta tabla:
+
+- **I1:** restricción de exclusión `appointments_practitioner_no_overlap`. Un profesional no tiene dos citas `booked` con intervalos que se solapan.
+- **I2:** restricción de exclusión `appointments_patient_no_overlap`, equivalente para el paciente.
+- **Coherencia del cierre:** `appointments_closed_consistent` exige `closed_by` y `closed_at` si y solo si la cita ya no está `booked`.
+- **Trigger `appointments_set_ends_at`** (antes de insertar): fija `ends_at` según la duración del servicio (I4).
+- **Trigger `appointments_guard_update`** (antes de actualizar): después de creada, de una cita solo cambian su estado y los datos de cierre, y una cita en estado final no puede cambiar (RF13).
+
+**`audit_outbox`**: cola de eventos de auditoría de Agenda (RF18). Es idéntica a la de Expediente, y se describe en la sección siguiente.
+
+#### `expediente_db`
+
+**`clinical_notes`**: notas clínicas (RF15). Es el registro sensible del sistema y por eso vive aislada de las demás bases. Hay una nota por cita.
+
+| Columna | Tipo | Nulo | Descripción |
+|---|---|---|---|
+| `id` | `uuid` | NO | **PK** |
+| `clinic_id` | `uuid` | NO | Clínica de la nota. Sin FK: la clínica vive en otra base. Sale del token, nunca de la petición |
+| `appointment_id` | `uuid` | NO | La cita a la que corresponde. Sin FK: vive en Agenda. Expediente la verifica con Agenda antes de insertar. **UQ** `(clinic_id, appointment_id)`: una nota por cita |
+| `patient_id` | `uuid` | NO | Paciente de la cita. Sin FK. Se toma del contexto verificado de la cita, no de quien escribe |
+| `practitioner_subject` | `text` | NO | Subject de Keycloak del profesional que atendió la cita y escribió la nota. Solo él puede leerla. No puede quedar vacío |
+| `content` | `text` | NO | Texto de la nota. No puede quedar vacío |
+| `created_at` | `timestamptz` | NO | Cuándo se escribió |
+
+La aplicación solo tiene `SELECT` e `INSERT` sobre esta tabla: una nota no se modifica ni se borra (desnormalización 4 de 1.4).
+
+**`audit_outbox`** y **`audit_outbox_delivered`**: ver la sección siguiente.
+
+#### `audit_db`
+
+**`audit_log`**: bitácora central de auditoría (RF18 y RF19). Recibe los eventos de Agenda y Expediente. **Solo admite inserciones** (I6): `audit_app` no tiene privilegios para modificarla y un trigger (`audit_log_immutable`) rechaza `UPDATE` y `DELETE` incluso al dueño.
+
+| Columna | Tipo | Nulo | Descripción |
+|---|---|---|---|
+| `event_id` | `uuid` | NO | **PK.** Identificador del evento, que genera el servicio de origen. Hace la entrega idempotente: reenviar un evento no crea otra fila |
+| `clinic_id` | `uuid` | NO | Clínica donde ocurrió. Un administrador solo consulta la suya |
+| `actor_subject` | `text` | NO | Subject de Keycloak de quien actuó. Es la identidad estable |
+| `actor_username` | `text` | NO | Nombre de usuario en ese momento. Es una instantánea: se conserva aunque el usuario cambie o se dé de baja (desnormalización 6 de 1.4) |
+| `action` | `text` | NO | Qué se hizo: `patient_contact.read`, `patient_contact.write`, `clinical_note.read` o `clinical_note.write` (`CHECK`) |
+| `patient_id` | `uuid` | NO | Paciente sobre el que se actuó |
+| `resource_type` | `text` | NO | `patient_contact` o `clinical_note`. Se deriva de `action` (desnormalización 5 de 1.4) |
+| `resource_id` | `uuid` | NO | Identificador del recurso: el paciente, o la nota clínica |
+| `occurred_at` | `timestamptz` | NO | Cuándo ocurrió en el servicio de origen |
+| `source_service` | `text` | NO | `agenda` o `expediente`. Qué servicio produjo el evento |
+| `received_at` | `timestamptz` | NO | Cuándo lo guardó Auditoría. Por omisión, `now()` |
+
+Los eventos llevan solo identificadores, nunca los valores de contacto ni el contenido de las notas.
+
+**`audit_outbox`** (existe en `agenda_db` y en `expediente_db`): cola de eventos pendientes de entregar a Auditoría, o ya entregados. Cada evento se escribe aquí en la misma transacción que la operación auditada, y un *relay* lo entrega después. Solo admite inserciones (I6, trigger `audit_outbox_immutable`).
+
+| Columna | Tipo | Nulo | Descripción |
+|---|---|---|---|
+| `event_id` | `uuid` | NO | **PK.** El mismo identificador que tendrá en `audit_log` |
+| `clinic_id`, `actor_subject`, `actor_username`, `patient_id`, `resource_id`, `occurred_at` | | NO | Los mismos campos que `audit_log`. `patient_id` y `clinic_id` no tienen FK a propósito: el outbox no debe bloquearse si el paciente no existe (desnormalización 7 de 1.4) |
+| `action` | `text` | NO | En Agenda: `patient_contact.read` o `patient_contact.write`. En Expediente: `clinical_note.read` o `clinical_note.write` (`CHECK`) |
+| `resource_type` | `text` | NO | En Agenda, `patient_contact`. En Expediente, `clinical_note` |
+| `source_service` | `text` | NO | En Agenda, `agenda`. En Expediente, `expediente` |
+| `created_at` | `timestamptz` | NO | Cuándo se escribió el evento. Por omisión, `now()` |
+
+**`audit_outbox_delivered`** (también en las dos bases): anota qué eventos ya se entregaron. Existe aparte para no tener que modificar el outbox, que es append-only.
+
+| Columna | Tipo | Nulo | Descripción |
+|---|---|---|---|
+| `event_id` | `uuid` | NO | **PK** y **FK** a `audit_outbox(event_id)` (`ON DELETE RESTRICT`) |
+| `delivered_at` | `timestamptz` | NO | Cuándo se entregó. Por omisión, `now()` |
+
+Una consecuencia de esto: un evento está pendiente si su `event_id` está en `audit_outbox` y no está en `audit_outbox_delivered`.
 
 ---
 
