@@ -58,6 +58,10 @@ try {
         docker compose --profile test run --rm db-security-test
     }
 
+    Invoke-NativeStep "Row-Level Security" {
+        docker compose --profile test run --rm rls-test
+    }
+
     Invoke-NativeStep "Audit immutability and idempotency" {
         docker compose --profile test run --rm audit-invariants-test
     }

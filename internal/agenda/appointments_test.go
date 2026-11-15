@@ -179,7 +179,7 @@ func newTestScheduling() (*Scheduling, *fakeSchedulingStore, *countingCache, *fa
 	redisCache, _ := newTestCache()
 	cache := &countingCache{RedisAvailabilityCache: redisCache}
 
-	scheduling := NewScheduling(store, tx, nil, cache)
+	scheduling := NewScheduling(store, tx, cache)
 	// "Ahora" es el domingo anterior al lunes de las pruebas.
 	scheduling.now = func() time.Time { return at(12, 0).AddDate(0, 0, -1) }
 

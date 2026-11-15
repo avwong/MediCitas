@@ -41,6 +41,8 @@ run "Tenant isolation leaks" \
 run "Database privilege boundaries" \
   docker compose --profile test run --rm db-security-test
 
+run "Row-Level Security"   docker compose --profile test run --rm rls-test
+
 run "Audit immutability and idempotency" \
   docker compose --profile test run --rm audit-invariants-test
 

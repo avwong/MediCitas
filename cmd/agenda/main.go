@@ -82,7 +82,6 @@ func run(ctx context.Context) error {
 	scheduling := agenda.NewScheduling(
 		agenda.NewPostgresSchedulingStore(),
 		app.Tx,
-		app.DB,
 		cache,
 	)
 	schedulingHandler := agenda.NewSchedulingHandler(scheduling, app.Logger)
@@ -108,7 +107,6 @@ func run(ctx context.Context) error {
 	reportHandler.RegisterRoutes(app.API)
 	handler.RegisterInternalRoutes(internal, tenancyClientID)
 	schedulingHandler.RegisterInternalRoutes(internal)
-
 
 	tokenSource := svcclient.NewClientCredentials(
 		tokenURL,

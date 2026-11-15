@@ -381,6 +381,25 @@ services:
       migrate-audit:
         condition: service_completed_successfully
 
+  # Row-Level Security de agenda_db (segunda capa de I5).
+  rls-test:
+    profiles: ["test"]
+    image: postgres:17-alpine
+    container_name: medicitas-rls-test
+    environment:
+      PGHOST: postgres
+      AGENDA_DB_OWNER_PASSWORD: ${AGENDA_DB_OWNER_PASSWORD}
+      AGENDA_DB_APP_PASSWORD: ${AGENDA_DB_APP_PASSWORD}
+      AGENDA_DB_READONLY_PASSWORD: ${AGENDA_DB_READONLY_PASSWORD}
+    volumes:
+      - ./deploy/postgres/test-rls.sh:/test-rls.sh:ro
+    entrypoint: ["sh", "/test-rls.sh"]
+    depends_on:
+      migrate-agenda:
+        condition: service_completed_successfully
+      db-seed:
+        condition: service_completed_successfully
+
   # Entrega real de los relays de Agenda y Expediente hacia Auditoría.
   audit-relay-test:
     profiles: ["test"]

@@ -23,20 +23,28 @@ func NewPostgresStore(pool *pgxpool.Pool, tx *database.TxManager) *PostgresStore
 }
 
 // UpsertClinic guarda la proyección local de una clínica.
+// Corre con la clínica fijada: la política de RLS de clinics solo deja escribir
+// la fila de la clínica de la transacción.
 func (s *PostgresStore) UpsertClinic(ctx context.Context, clinicID, timezone string) error {
-	_, err := s.pool.Exec(ctx, `
-		INSERT INTO clinics (id, timezone)
-		VALUES ($1, $2)
-		ON CONFLICT (id) DO UPDATE SET timezone = EXCLUDED.timezone
-	`, clinicID, timezone)
+	return s.tx.Run(ctx, database.TxOptions{ClinicID: clinicID}, func(ctx context.Context, tx *database.Tx) error {
+		_, err := tx.Exec(ctx, `
+			INSERT INTO clinics (id, timezone)
+			VALUES ($1, $2)
+			ON CONFLICT (id) DO UPDATE SET timezone = EXCLUDED.timezone
+		`, clinicID, timezone)
 
-	return database.MapError(err)
+		return database.MapError(err)
+	})
 }
 
 // DeleteClinic elimina la proyección de una clínica. Borrar una que ya no
 // existe cuenta como éxito; borrar una que tiene datos es un conflicto.
 func (s *PostgresStore) DeleteClinic(ctx context.Context, clinicID string) error {
-	_, err := s.pool.Exec(ctx, `DELETE FROM clinics WHERE id = $1`, clinicID)
+	err := s.tx.Run(ctx, database.TxOptions{ClinicID: clinicID}, func(ctx context.Context, tx *database.Tx) error {
+		_, err := tx.Exec(ctx, `DELETE FROM clinics WHERE id = $1`, clinicID)
+
+		return err
+	})
 	if err != nil {
 		mapped := database.MapError(err)
 		// Aquí una violación de llave foránea significa que la clínica está en
@@ -141,27 +149,34 @@ func (s *PostgresStore) CreateService(ctx context.Context, clinicID string, in N
 
 // ListServices devuelve el catálogo de la clínica ordenado por nombre.
 func (s *PostgresStore) ListServices(ctx context.Context, clinicID string) ([]MedicalService, error) {
-	rows, err := s.pool.Query(ctx, serviceSelect+`
-		WHERE s.clinic_id = $1
-		ORDER BY s.name
-	`, clinicID)
-	if err != nil {
-		return nil, database.MapError(err)
-	}
-	defer rows.Close()
-
 	services := make([]MedicalService, 0)
-	for rows.Next() {
-		service, err := scanService(rows)
+
+	err := s.tx.Run(ctx, database.TxOptions{ClinicID: clinicID, ReadOnly: true}, func(ctx context.Context, tx *database.Tx) error {
+		// La función se puede repetir, así que cada intento parte de cero
+		services = services[:0]
+
+		rows, err := tx.Query(ctx, serviceSelect+`
+			WHERE s.clinic_id = $1
+			ORDER BY s.name
+		`, clinicID)
 		if err != nil {
-			return nil, fmt.Errorf("scan service: %w", err)
+			return database.MapError(err)
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			service, err := scanService(rows)
+			if err != nil {
+				return fmt.Errorf("scan service: %w", err)
+			}
+
+			services = append(services, service)
 		}
 
-		services = append(services, service)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, database.MapError(err)
+		return database.MapError(rows.Err())
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return services, nil
@@ -169,13 +184,21 @@ func (s *PostgresStore) ListServices(ctx context.Context, clinicID string) ([]Me
 
 // GetService devuelve un servicio de la clínica.
 func (s *PostgresStore) GetService(ctx context.Context, clinicID, serviceID string) (MedicalService, error) {
-	row := s.pool.QueryRow(ctx, serviceSelect+`
-		WHERE s.clinic_id = $1 AND s.id = $2
-	`, clinicID, serviceID)
+	var service MedicalService
 
-	service, err := scanService(row)
+	err := s.tx.Run(ctx, database.TxOptions{ClinicID: clinicID, ReadOnly: true}, func(ctx context.Context, tx *database.Tx) error {
+		row := tx.QueryRow(ctx, serviceSelect+`
+			WHERE s.clinic_id = $1 AND s.id = $2
+		`, clinicID, serviceID)
+
+		var err error
+
+		service, err = scanService(row)
+
+		return database.MapError(err)
+	})
 	if err != nil {
-		return MedicalService{}, database.MapError(err)
+		return MedicalService{}, err
 	}
 
 	return service, nil
@@ -183,20 +206,22 @@ func (s *PostgresStore) GetService(ctx context.Context, clinicID, serviceID stri
 
 // DeactivateService marca un servicio como inactivo.
 func (s *PostgresStore) DeactivateService(ctx context.Context, clinicID, serviceID string) error {
-	tag, err := s.pool.Exec(ctx, `
-		UPDATE services
-		SET active = FALSE
-		WHERE clinic_id = $1 AND id = $2
-	`, clinicID, serviceID)
-	if err != nil {
-		return database.MapError(err)
-	}
+	return s.tx.Run(ctx, database.TxOptions{ClinicID: clinicID}, func(ctx context.Context, tx *database.Tx) error {
+		tag, err := tx.Exec(ctx, `
+			UPDATE services
+			SET active = FALSE
+			WHERE clinic_id = $1 AND id = $2
+		`, clinicID, serviceID)
+		if err != nil {
+			return database.MapError(err)
+		}
 
-	if tag.RowsAffected() == 0 {
-		return apperr.NotFound("service not found")
-	}
+		if tag.RowsAffected() == 0 {
+			return apperr.NotFound("service not found")
+		}
 
-	return nil
+		return nil
+	})
 }
 
 // CreatePractitioner inserta al profesional y sus servicios en una sola
@@ -389,33 +414,53 @@ func getPractitioner(ctx context.Context, db database.DBTX, clinicID, practition
 
 // GetPractitioner devuelve un profesional de la clínica con sus servicios.
 func (s *PostgresStore) GetPractitioner(ctx context.Context, clinicID, practitionerID string) (Practitioner, error) {
-	return getPractitioner(ctx, s.pool, clinicID, practitionerID)
+	var practitioner Practitioner
+
+	err := s.tx.Run(ctx, database.TxOptions{ClinicID: clinicID, ReadOnly: true}, func(ctx context.Context, tx *database.Tx) error {
+		var err error
+
+		practitioner, err = getPractitioner(ctx, tx, clinicID, practitionerID)
+
+		return err
+	})
+	if err != nil {
+		return Practitioner{}, err
+	}
+
+	return practitioner, nil
 }
 
 // ListPractitioners devuelve los profesionales de la clínica con sus
 // servicios, ordenados por nombre.
 func (s *PostgresStore) ListPractitioners(ctx context.Context, clinicID string) ([]Practitioner, error) {
-	rows, err := s.pool.Query(ctx, practitionerQuery+`
-		GROUP BY p.id, sp.id
-		ORDER BY p.display_name
-	`, clinicID)
-	if err != nil {
-		return nil, database.MapError(err)
-	}
-	defer rows.Close()
-
 	practitioners := make([]Practitioner, 0)
-	for rows.Next() {
-		practitioner, err := scanPractitioner(rows)
+
+	err := s.tx.Run(ctx, database.TxOptions{ClinicID: clinicID, ReadOnly: true}, func(ctx context.Context, tx *database.Tx) error {
+		// La función se puede repetir, así que cada intento parte de cero
+		practitioners = practitioners[:0]
+
+		rows, err := tx.Query(ctx, practitionerQuery+`
+			GROUP BY p.id, sp.id
+			ORDER BY p.display_name
+		`, clinicID)
 		if err != nil {
-			return nil, fmt.Errorf("scan practitioner: %w", err)
+			return database.MapError(err)
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			practitioner, err := scanPractitioner(rows)
+			if err != nil {
+				return fmt.Errorf("scan practitioner: %w", err)
+			}
+
+			practitioners = append(practitioners, practitioner)
 		}
 
-		practitioners = append(practitioners, practitioner)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, database.MapError(err)
+		return database.MapError(rows.Err())
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return practitioners, nil
@@ -425,20 +470,43 @@ func (s *PostgresStore) ListPractitioners(ctx context.Context, clinicID string) 
 // y devuelve su clínica y su id. No lleva clinic_id porque user_id es único en
 // toda la tabla y quien llama es Tenancy, no un usuario de una clínica. Si el
 // usuario no tiene profesional no hace nada y devuelve los ids vacíos.
+//
+// Es la única operación de Agenda que empieza sin una clínica conocida, así que
+// no hay con qué fijar app.clinic_id. La función practitioner_clinic_of_user,
+// de la migración 0009, dice a qué clínica pertenece el usuario y es la única
+// excepción deliberada a RLS. Con esa clínica, la escritura sí corre bajo las
+// políticas, igual que cualquier otra.
 func (s *PostgresStore) SetPractitionerActiveByUser(
 	ctx context.Context,
 	userID string,
 	active bool,
 ) (clinicID, practitionerID string, err error) {
 	err = s.pool.QueryRow(ctx, `
-		UPDATE practitioners
-		SET active = $2
-		WHERE user_id = $1
-		RETURNING clinic_id::text, id::text
-	`, userID, active).Scan(&clinicID, &practitionerID)
+		SELECT COALESCE(practitioner_clinic_of_user($1::uuid)::text, '')
+	`, userID).Scan(&clinicID)
+	if err != nil {
+		return "", "", database.MapError(err)
+	}
+
+	if clinicID == "" {
+		return "", "", nil
+	}
+
+	err = s.tx.Run(ctx, database.TxOptions{ClinicID: clinicID}, func(ctx context.Context, tx *database.Tx) error {
+		return tx.QueryRow(ctx, `
+			UPDATE practitioners
+			SET active = $3
+			WHERE clinic_id = $2 AND user_id = $1
+			RETURNING id::text
+		`, userID, clinicID, active).Scan(&practitionerID)
+	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", "", nil
 	}
 
-	return clinicID, practitionerID, database.MapError(err)
+	if err != nil {
+		return "", "", database.MapError(err)
+	}
+
+	return clinicID, practitionerID, nil
 }
