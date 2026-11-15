@@ -1,0 +1,3 @@
+DROP INDEX IF EXISTS idx_patients_clinic_last_name_prefix;
+DROP INDEX IF EXISTS idx_patients_clinic_first_name_prefix;
+DROP INDEX IF EXISTS idx_patients_clinic_identification_prefix;
