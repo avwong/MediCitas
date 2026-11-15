@@ -14,16 +14,18 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// Handler exposes RF19 and the private producer intake.
+// Handler expone la consulta de RF19 y la ruta privada por la que los
+// productores entregan sus eventos.
 type Handler struct {
 	service   *Service
 	logger    *slog.Logger
 	producers map[string]string
 }
 
-// NewHandler returns the audit HTTP handler.
+// NewHandler devuelve el handler HTTP de Auditoría.
 //
-// producers maps Keycloak client id -> trusted source-service name.
+// producers relaciona el client id de Keycloak de cada productor con el nombre
+// del servicio de origen en el que se confía.
 func NewHandler(
 	service *Service,
 	logger *slog.Logger,
@@ -36,7 +38,8 @@ func NewHandler(
 	}
 }
 
-// RegisterRoutes adds the public RF19 route and private producer route.
+// RegisterRoutes agrega la ruta pública de RF19 y la ruta privada de los
+// productores.
 func (h *Handler) RegisterRoutes(
 	api *gin.RouterGroup,
 	internal *gin.RouterGroup,
@@ -50,7 +53,7 @@ func (h *Handler) RegisterRoutes(
 	internal.POST("/audit/events", h.Ingest)
 }
 
-// Ingest handles POST /internal/audit/events.
+// Ingest atiende POST /internal/audit/events.
 func (h *Handler) Ingest(c *gin.Context) {
 	actor, ok := auth.CurrentActor(c)
 	if !ok {
@@ -80,11 +83,11 @@ func (h *Handler) Ingest(c *gin.Context) {
 		return
 	}
 
-	// Re-delivery of the same event is also successful.
+	// Recibir de nuevo un evento ya guardado también cuenta como éxito.
 	c.Status(http.StatusNoContent)
 }
 
-// List handles GET /api/v1/audit.
+// List atiende GET /api/v1/audit.
 func (h *Handler) List(c *gin.Context) {
 	actor, ok := auth.CurrentActor(c)
 	if !ok {

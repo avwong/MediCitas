@@ -1,3 +1,5 @@
+// Command audit ejecuta el servicio de Auditoría: la bitácora central y su
+// consulta.
 package main
 
 import (
