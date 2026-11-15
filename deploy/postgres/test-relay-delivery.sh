@@ -1,4 +1,7 @@
 #!/bin/sh
+# Prueba de integración de los relays: inserta un evento en el outbox real de
+# Agenda y otro en el de Expediente, y espera a que los relays en ejecución
+# los entreguen a Auditoría y anoten la entrega.
 set -eu
 
 HOST="${PGHOST:-postgres}"

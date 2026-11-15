@@ -1,22 +1,22 @@
 #!/bin/sh
-# Creates one isolated database per service and three least-privilege roles:
+# Crea una base de datos aislada por servicio y tres roles de menor privilegio:
 #
-#   <service>_owner
-#       Owns the service database and runs migrations / DDL.
+#   <servicio>_owner
+#       Dueño de la base del servicio. Ejecuta las migraciones (DDL).
 #
-#   <service>_app
-#       Runtime identity used by the Go service. It may perform only the DML
-#       required by that service and cannot modify the schema.
+#   <servicio>_app
+#       Identidad con la que se conecta el servicio en Go. Solo puede hacer el
+#       DML que el servicio necesita y no puede modificar el esquema.
 #
-#   <service>_readonly
-#       Diagnostic/read-only identity. It may SELECT but cannot write or
-#       modify the schema.
+#   <servicio>_readonly
+#       Identidad de diagnóstico. Puede hacer SELECT, pero no escribir ni
+#       modificar el esquema.
 #
-# audit_app is intentionally stricter: SELECT + INSERT only. UPDATE and
-# DELETE are never granted, helping enforce invariant I6.
+# audit_app es más estricto a propósito: solo SELECT e INSERT. Nunca recibe
+# UPDATE ni DELETE, lo que ayuda a sostener el invariante I6.
 #
-# The script is idempotent. It runs on every docker compose up and reapplies
-# role attributes, passwords and grants.
+# El script es idempotente: corre en cada docker compose up y vuelve a aplicar
+# los atributos de los roles, las contraseñas y los permisos.
 set -eu
 
 setup_service() {
@@ -91,7 +91,7 @@ WHERE NOT EXISTS (
 )
 \gexec
 
--- Nobody receives database access implicitly.
+-- Nadie recibe acceso a la base de forma implícita.
 REVOKE ALL ON DATABASE :"db" FROM PUBLIC;
 
 GRANT CONNECT, TEMPORARY
@@ -108,7 +108,7 @@ TO :"readonly";
 
 \connect :db
 
--- Nobody may create objects in public implicitly.
+-- Nadie puede crear objetos en public de forma implícita.
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 
 GRANT USAGE, CREATE
@@ -123,7 +123,7 @@ GRANT USAGE
 ON SCHEMA public
 TO :"readonly";
 
--- Reset previous grants before rebuilding the desired privilege model.
+-- Se quitan los permisos anteriores antes de reconstruir el modelo deseado.
 ALTER DEFAULT PRIVILEGES FOR ROLE :"owner" IN SCHEMA public
   REVOKE ALL ON TABLES FROM :"app";
 
@@ -141,7 +141,7 @@ SELECT format(
 ALTER DEFAULT PRIVILEGES FOR ROLE :"owner" IN SCHEMA public
   GRANT SELECT ON TABLES TO :"readonly";
 
--- Reapply the same policy to tables that already exist.
+-- La misma política se aplica a las tablas que ya existen.
 REVOKE ALL ON ALL TABLES IN SCHEMA public FROM :"app";
 REVOKE ALL ON ALL TABLES IN SCHEMA public FROM :"readonly";
 
@@ -156,7 +156,7 @@ GRANT SELECT
 ON ALL TABLES IN SCHEMA public
 TO :"readonly";
 
--- Application roles may consume sequences but may not alter them.
+-- Los roles de aplicación pueden usar las secuencias, pero no alterarlas.
 ALTER DEFAULT PRIVILEGES FOR ROLE :"owner" IN SCHEMA public
   REVOKE ALL ON SEQUENCES FROM :"app";
 
@@ -205,9 +205,9 @@ setup_service audit \
   "$AUDIT_DB_READONLY_PASSWORD" \
   "SELECT, INSERT"
 
-# Reapply table-specific least privilege when db-init runs against an already
-# migrated database. On a fresh database these tables do not exist yet and
-# the migrations apply the same restrictions when they create them.
+# Vuelve a aplicar el menor privilegio por tabla cuando db-init corre sobre una
+# base ya migrada. En una base nueva estas tablas todavía no existen, y las
+# migraciones aplican las mismas restricciones al crearlas.
 revoke_mutation_if_exists() {
   database="$1"
   role="$2"
@@ -228,21 +228,23 @@ WHERE to_regclass(format('public.%I', :'target_table')) IS NOT NULL
 SQL
 }
 
-# Producer outboxes and delivery markers are append-oriented.
+# Los outbox de los productores y sus marcas de entrega solo admiten
+# inserciones.
 revoke_mutation_if_exists agenda_db agenda_app audit_outbox
 revoke_mutation_if_exists agenda_db agenda_app audit_outbox_delivered
 
 revoke_mutation_if_exists expediente_db expediente_app audit_outbox
 revoke_mutation_if_exists expediente_db expediente_app audit_outbox_delivered
 
-# RF15 defines creation and reading, not mutation or deletion of clinical
-# notes.
+# RF15 define crear y leer notas clínicas, no modificarlas ni borrarlas.
 revoke_mutation_if_exists expediente_db expediente_app clinical_notes
 
-# Defense in depth for the central append-only audit log.
+# Defensa en profundidad para la bitácora central, que solo admite inserciones.
 revoke_mutation_if_exists audit_db audit_app audit_log
-# Appointment exclusion constraints require btree_gist. Infrastructure creates
-# the extension so migration roles never require superuser privileges.
+
+# Las restricciones de exclusión de las citas necesitan btree_gist. La
+# extensión se crea aquí, con la infraestructura, para que los roles de
+# migración nunca necesiten ser superusuario.
 psql \
   -v ON_ERROR_STOP=1 \
   -d agenda_db \

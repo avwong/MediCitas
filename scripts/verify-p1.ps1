@@ -1,3 +1,5 @@
+# Verificación completa: pruebas unitarias, análisis estático y todas las
+# pruebas de integración contra la pila real de Compose. No borra volúmenes.
 $ErrorActionPreference = "Stop"
 
 function Invoke-NativeStep {

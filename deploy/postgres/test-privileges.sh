@@ -1,4 +1,7 @@
 #!/bin/sh
+# Prueba de integración de las fronteras de privilegios de PostgreSQL: intenta
+# con cada rol las operaciones permitidas y las prohibidas contra la base real
+# y termina con error en cuanto una prohibida tiene éxito.
 set -eu
 
 : "${TENANCY_DB_OWNER_PASSWORD:?required}"

@@ -1,4 +1,5 @@
-# One Dockerfile for every service: SERVICE selects the binary in cmd/.
+# Un solo Dockerfile para todos los servicios: SERVICE elige el binario de
+# cmd/.
 FROM golang:1.27-alpine AS builder
 
 ARG SERVICE
