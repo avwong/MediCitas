@@ -40,6 +40,10 @@ try {
         docker compose --profile test run --build --rm p1-api-integration-test
     }
 
+    Invoke-NativeStep "Agenda API integration" {
+        docker compose --profile test run --build --rm agenda-api-integration-test
+    }
+
     Invoke-NativeStep "Database privilege boundaries" {
         docker compose --profile test run --rm db-security-test
     }

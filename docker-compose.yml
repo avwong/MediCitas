@@ -310,6 +310,27 @@ services:
         condition: service_healthy
 
   # --------------------------------------------------------------------------
+  # Agenda integration test: patients (RF14), contact audit (RF18), isolation (I5)
+  # --------------------------------------------------------------------------
+  agenda-api-integration-test:
+    profiles: ["test"]
+    build:
+      context: .
+      args:
+        SERVICE: agendacheck
+    image: medicitas-agenda-integration-test:dev
+    environment:
+      API_URL: http://proxy:8080
+      KEYCLOAK_URL: http://keycloak:8080
+    depends_on:
+      proxy:
+        condition: service_started
+      keycloak:
+        condition: service_healthy
+      audit:
+        condition: service_healthy
+
+  # --------------------------------------------------------------------------
   # Real producer relay -> Audit integration test
   # --------------------------------------------------------------------------
   audit-relay-test:

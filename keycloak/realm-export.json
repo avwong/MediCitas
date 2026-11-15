@@ -325,6 +325,246 @@
       }
     },
     {
+      "id": "77777777-7777-4777-8777-777777777777",
+      "username": "practitioner2",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Luis",
+      "lastName": "Mora",
+      "email": "practitioner2@medicitas.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Practitioner123!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "practitioner"
+      ],
+      "attributes": {
+        "clinic_id": [
+          "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+        ]
+      }
+    },
+    {
+      "id": "88888888-8888-4888-8888-888888888888",
+      "username": "practitioner3",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Sofía",
+      "lastName": "Vargas",
+      "email": "practitioner3@medicitas.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Practitioner123!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "practitioner"
+      ],
+      "attributes": {
+        "clinic_id": [
+          "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+        ]
+      }
+    },
+    {
+      "id": "99999999-9999-4999-8999-999999999999",
+      "username": "norte.practitioner1",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Carmen",
+      "lastName": "Solís",
+      "email": "norte.practitioner1@medicitas.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Norte123!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "practitioner"
+      ],
+      "attributes": {
+        "clinic_id": [
+          "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+        ]
+      }
+    },
+    {
+      "id": "10101010-1010-4101-8101-101010101010",
+      "username": "norte.practitioner2",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Rafael",
+      "lastName": "Araya",
+      "email": "norte.practitioner2@medicitas.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Norte123!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "practitioner"
+      ],
+      "attributes": {
+        "clinic_id": [
+          "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+        ]
+      }
+    },
+    {
+      "id": "20202020-2020-4202-8202-202020202020",
+      "username": "norte.practitioner3",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Elena",
+      "lastName": "Brenes",
+      "email": "norte.practitioner3@medicitas.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Norte123!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "practitioner"
+      ],
+      "attributes": {
+        "clinic_id": [
+          "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+        ]
+      }
+    },
+    {
+      "id": "30303030-3030-4303-8303-303030303030",
+      "username": "sur.admin",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Sur",
+      "lastName": "Admin",
+      "email": "sur.admin@medicitas.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Sur123!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "clinic_admin"
+      ],
+      "attributes": {
+        "clinic_id": [
+          "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+        ]
+      }
+    },
+    {
+      "id": "40404040-4040-4404-8404-404040404040",
+      "username": "sur.reception",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Sur",
+      "lastName": "Reception",
+      "email": "sur.reception@medicitas.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Sur123!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "reception"
+      ],
+      "attributes": {
+        "clinic_id": [
+          "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+        ]
+      }
+    },
+    {
+      "id": "50505050-5050-4505-8505-505050505050",
+      "username": "sur.practitioner1",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Camila",
+      "lastName": "Ríos",
+      "email": "sur.practitioner1@medicitas.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Sur123!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "practitioner"
+      ],
+      "attributes": {
+        "clinic_id": [
+          "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+        ]
+      }
+    },
+    {
+      "id": "60606060-6060-4606-8606-606060606060",
+      "username": "sur.practitioner2",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Mateo",
+      "lastName": "Herrera",
+      "email": "sur.practitioner2@medicitas.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Sur123!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "practitioner"
+      ],
+      "attributes": {
+        "clinic_id": [
+          "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+        ]
+      }
+    },
+    {
+      "id": "70707070-7070-4707-8707-707070707070",
+      "username": "sur.practitioner3",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Valentina",
+      "lastName": "Cruz",
+      "email": "sur.practitioner3@medicitas.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Sur123!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "practitioner"
+      ],
+      "attributes": {
+        "clinic_id": [
+          "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+        ]
+      }
+    },
+    {
       "username": "service-account-tenancy-service",
       "enabled": true,
       "serviceAccountClientId": "tenancy-service",

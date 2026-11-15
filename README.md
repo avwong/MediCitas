@@ -2,7 +2,7 @@
 
 Plataforma SaaS multi-tenant de gestión de citas médicas. Una empresa la vende como servicio a muchas clínicas a la vez, y los datos de cada clínica permanecen estrictamente aislados.
 
-El sistema se compone de cuatro servicios en Go detrás de un proxy, con PostgreSQL, Redis y Keycloak. El diseño completo, las alternativas consideradas y sus compromisos están en [`docs/arquitectura.md`](docs/arquitectura.md).
+El sistema se compone de cuatro servicios en Go detrás de un proxy, con PostgreSQL, Redis y Keycloak. El diseño completo, las alternativas consideradas y sus compromisos están en [`docs/design.md`](docs/design.md).
 
 | Servicio | Responsabilidad | Requisitos | Base de datos |
 |---|---|---|---|
@@ -58,8 +58,16 @@ Usuarios de prueba:
 | `clinic.admin` | `Clinic123!` | `clinic_admin` | Clínica Demo |
 | `reception` | `Reception123!` | `reception` | Clínica Demo |
 | `practitioner` | `Practitioner123!` | `practitioner` | Clínica Demo |
+| `practitioner2` | `Practitioner123!` | `practitioner` | Clínica Demo |
+| `practitioner3` | `Practitioner123!` | `practitioner` | Clínica Demo |
 | `norte.admin` | `Norte123!` | `clinic_admin` | Clínica Norte |
 | `norte.reception` | `Norte123!` | `reception` | Clínica Norte |
+| `norte.practitioner1`, `norte.practitioner2`, `norte.practitioner3` | `Norte123!` | `practitioner` | Clínica Norte |
+| `sur.admin` | `Sur123!` | `clinic_admin` | Clínica Sur |
+| `sur.reception` | `Sur123!` | `reception` | Clínica Sur |
+| `sur.practitioner1`, `sur.practitioner2`, `sur.practitioner3` | `Sur123!` | `practitioner` | Clínica Sur |
+
+La semilla crea tres clínicas (Demo, Norte y Sur). Cada una tiene su administrador, su recepción y tres profesionales, y cada profesional atiende los servicios de su especialidad. Los profesionales de Agenda coinciden con usuarios de Tenancy y de Keycloak. La Clínica Sur usa la zona horaria `America/Bogota`, para probar que cada clínica respeta la suya.
 
 Reglas que aplican todos los servicios:
 
@@ -91,7 +99,7 @@ Todas las rutas reciben y devuelven JSON. Los errores tienen la forma `{"error":
 
 ### Agenda
 
-Actualmente están implementados RF3 y RF4:
+Actualmente están implementados RF3, RF4 y RF14. Catálogo y profesionales (RF3 y RF4):
 
 | Método y ruta | Rol | Entrada | Salida | Códigos |
 |---|---|---|---|---|
@@ -106,7 +114,30 @@ Actualmente están implementados RF3 y RF4:
 
 Un profesional solo puede atender servicios activos de su clínica que requieran su especialidad; si algún servicio no cumple, la operación completa se rechaza.
 
-RF5–RF14, RF16, RF20 y RF21 pertenecen a Agenda y se incorporarán sobre esta misma frontera de servicio.
+La especialidad (`specialty`) se recibe como texto y se guarda en la tabla `specialties` de la clínica, sin distinguir mayúsculas: "Medicina general" y "medicina general" son la misma. Las respuestas incluyen `specialty` y `specialty_id`.
+
+Pacientes (RF14):
+
+| Método y ruta | Rol | Entrada | Salida | Códigos |
+|---|---|---|---|---|
+| `POST /api/v1/patients` | `clinic_admin`, `reception` | `identification`, `first_name`, `last_name`, `birth_date` (`AAAA-MM-DD`); opcionales `phone`, `email`, `address` | paciente | 201, 400, 409 |
+| `PATCH /api/v1/patients/{id}` | `clinic_admin`, `reception` | cualquiera de los campos anteriores | paciente | 200, 400, 404, 409 |
+| `GET /api/v1/patients` | personal de la clínica | `q` (búsqueda por prefijo) y `limit` (1–200, por defecto 50), opcionales | `{items: [resumen]}` | 200, 400 |
+| `GET /api/v1/patients/{id}` | personal de la clínica | — | paciente | 200, 400, 404 |
+
+Reglas de los pacientes:
+
+- Recepción y administración escriben; el profesional solo lee (matriz de permisos).
+- En `PATCH`, un campo ausente no se modifica y un dato de contacto enviado vacío se borra. Un cuerpo sin ningún campo responde 400.
+- La identificación es única dentro de la clínica (409 si se repite) y puede repetirse entre clínicas.
+- `birth_date` no puede ser futura ni anterior a 1900-01-01. `phone` admite dígitos, espacios, `+`, `-` y paréntesis. `email` debe ser una dirección válida.
+- La clínica nunca viaja en la petición: se toma del `clinic_id` firmado. Un paciente de otra clínica responde 404.
+- El listado devuelve un resumen **sin datos de contacto** (`id`, `identification`, `first_name`, `last_name`, `birth_date`, `active`), por lo que no se audita.
+- Cada creación, actualización y lectura de un paciente con sus datos de contacto escribe `patient_contact.write` o `patient_contact.read` en `audit_outbox`, dentro de la misma transacción. Si el evento no se puede guardar, la operación no se completa. El evento lleva solo identificadores, nunca los valores de contacto.
+
+La semilla incluye 13 pacientes de ejemplo: 6 en Clínica Demo, 3 en Clínica Norte y 4 en Clínica Sur.
+
+RF5–RF13, RF16, RF20 y RF21 pertenecen a Agenda y se incorporarán sobre esta misma frontera de servicio.
 
 ### Expediente
 
@@ -125,7 +156,7 @@ La lectura se filtra simultáneamente por clínica, id de nota y subject del pro
 
 La creación y cada lectura escriben respectivamente `clinical_note.write` y `clinical_note.read` en `audit_outbox` dentro de la misma transacción de `expediente_db`.
 
-El extremo de Expediente está listo; la creación end-to-end quedará habilitada cuando Agenda implemente su parte del contrato de citas descrito en [`docs/expediente.md`](docs/expediente.md).
+El extremo de Expediente está listo; la creación end-to-end quedará habilitada cuando Agenda implemente su parte del contrato descrito en «Rutas internas».
 
 ### Auditoría
 
@@ -133,7 +164,7 @@ Auditoría centraliza los eventos de RF18 y expone RF19.
 
 | Método y ruta | Rol | Entrada / filtros | Salida | Códigos |
 |---|---|---|---|---|
-| `GET /api/v1/audit` | `clinic_admin` | `user`, `patient_id`, `from`, `to`, `limit` opcionales | `{items: [...]}` | 200, 400, 401, 403 |
+| `GET /api/v1/audit` | `clinic_admin` | opcionales: `user` (subject o nombre de usuario), `patient_id`, `from` y `to` (RFC 3339, inclusivos), `limit` (1–500, por defecto 100) | `{items: [...]}` | 200, 400, 401, 403 |
 
 La clínica del filtro nunca viene de la petición: se deriva del `clinic_id` firmado del administrador.
 
@@ -158,7 +189,34 @@ Expediente queda preparado para consumir, cuando el módulo de citas exista:
 
 Esa llamada reenviará **el token original del profesional**, no un `clinic_id` en headers ni parámetros. Agenda deberá validar el token y devolver únicamente el contexto de una cita visible para esa clínica.
 
-El contrato esperado está documentado en [`docs/expediente.md`](docs/expediente.md).
+Respuesta esperada, con el estado `attended` para una cita atendida:
+
+~~~json
+{
+  "appointment_id": "uuid",
+  "clinic_id": "uuid",
+  "patient_id": "uuid",
+  "practitioner_subject": "keycloak-subject",
+  "status": "attended"
+}
+~~~
+
+Reglas del contrato:
+
+- Agenda deriva la clínica del token autenticado, nunca de parámetros ni de encabezados de quien llama.
+- Solo devuelve una cita visible para esa clínica.
+- `practitioner_subject` es el subject de Keycloak del profesional que atendió la cita.
+- Agenda puede implementar sus tablas de citas como prefiera mientras se respete este contrato HTTP.
+
+Expediente acepta la nota solo si:
+
+1. quien llama tiene `notes:own`;
+2. la cita existe en la clínica de quien llama;
+3. Agenda informa la cita como `attended`;
+4. la cita la atendió el subject de quien llama;
+5. la cita todavía no tiene nota (hay una nota por cita).
+
+La cita de otro profesional se responde como inexistente, para no revelar que existe.
 
 Audit recibe eventos de sus productores mediante:
 
@@ -166,94 +224,32 @@ Audit recibe eventos de sus productores mediante:
 
 Agenda y Expediente utilizan cuentas de servicio independientes y OAuth 2.0 client credentials para ese relay.
 
-## Auditoría transaccional
-
-Agenda y Expediente disponen de `audit_outbox` append-only.
-
-La operación sensible y el evento se escriben en la misma transacción local. El relay no modifica el outbox: registra los eventos entregados en `audit_outbox_delivered`.
-
-Si Audit está temporalmente fuera de servicio, el dominio puede conservar el evento localmente y reintentarlo.
-
-Audit recibe los reenvíos de forma idempotente mediante `event_id`, por lo que una entrega repetida produce una sola fila central.
-
-El contenido de una nota clínica y los valores de contacto de un paciente nunca se copian al evento de auditoría.
-
-## Bases de datos y menor privilegio
-
-Cada servicio posee tres perfiles PostgreSQL:
-
-- `<service>_owner`: migraciones y DDL;
-- `<service>_app`: identidad runtime;
-- `<service>_readonly`: diagnóstico SELECT-only.
-
-Los roles no son superusuarios, no pueden crear roles ni bases, no pueden hacer bypass de RLS y no pueden conectarse a las bases de los demás servicios.
-
-El rol runtime de Audit está limitado a las operaciones necesarias para una bitácora append-only.
-
-Expediente restringe además `clinical_notes` a `SELECT` e `INSERT` para su rol runtime porque RF15 no define actualización ni borrado de notas.
-
 ## Pruebas
 
-Pruebas Go:
-
-~~~bash
-go test ./...
-go vet ./...
-~~~
-
-Validación del Compose:
-
-~~~bash
-docker compose config --quiet
-~~~
-
-Fronteras de privilegios PostgreSQL:
-
-~~~bash
-docker compose --profile test run --rm db-security-test
-~~~
-
-Inmutabilidad e idempotencia de auditoría:
-
-~~~bash
-docker compose --profile test run --rm audit-invariants-test
-~~~
-Autenticación real, permisos, proxy y aislamiento entre clínicas:
-
-~~~bash
-docker compose --profile test run --build --rm p1-api-integration-test
-~~~
-
-Entrega real de los relays de Agenda y Expediente hacia Audit:
-
-~~~bash
-docker compose --profile test run --rm audit-relay-test
-~~~
-
-La verificación completa de P1 puede ejecutarse con un solo comando:
+Verificación completa con un solo comando. Ejecuta las pruebas unitarias, el análisis estático y todas las pruebas de integración contra la pila real, y no borra los volúmenes:
 
 ~~~powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\verify-p1.ps1
 ~~~
 
-También existe `scripts/verify-p1.sh` para entornos Unix. El detalle de lo que
-demuestra cada prueba y la frontera de entrega para P2/P3 está documentado en
-[`docs/p1-verification.md`](docs/p1-verification.md).
+~~~bash
+sh ./scripts/verify-p1.sh
+~~~
 
-Las pruebas unitarias cubren actualmente autenticación/autorización, mapeo de errores, saga de clínicas, catálogo, outbox, Auditoría y el núcleo de Expediente RF15.
+Por separado:
 
-Las pruebas RF15 verifican, entre otras cosas:
+~~~bash
+go test ./...
+go vet ./...
+docker compose config --quiet
+docker compose --profile test run --rm db-security-test
+docker compose --profile test run --rm audit-invariants-test
+docker compose --profile test run --build --rm p1-api-integration-test
+docker compose --profile test run --rm audit-relay-test
+docker compose --profile test run --build --rm agenda-api-integration-test
+~~~
 
-- que solo el profesional autorizado llegue al verificador de Agenda;
-- que una cita no atendida sea rechazada;
-- que una cita de otro profesional no se revele;
-- que clínica, paciente y profesional no puedan ser inventados desde el body;
-- que la escritura genere `clinical_note.write`;
-- que la lectura genere `clinical_note.read`;
-- que la lectura auditada utilice una transacción read-write;
-- que el token original del usuario se reenvíe al adaptador de Agenda.
-
-Las pruebas completas de carrera, caché y fuga de datos de los requisitos de Agenda se añadirán con esos módulos.
+En orden, estos comandos comprueban: las pruebas unitarias, el análisis estático, el Compose, los privilegios de PostgreSQL, la inmutabilidad de la auditoría, la autenticación y el aislamiento entre clínicas, la entrega de los relays y los pacientes con su auditoría. Lo que demuestra cada una está en [`docs/pruebas.md`](docs/pruebas.md).
 
 ## Estructura
 
@@ -261,23 +257,23 @@ Las pruebas completas de carrera, caché y fuga de datos de los requisitos de Ag
 cmd/<servicio>/          binario de cada servicio
 internal/platform/       auth, DB/TxManager, HTTP, outbox, clientes internos
 internal/tenancy/        RF1 y RF2
-internal/agenda/         catálogo y futuros módulos de Agenda
+internal/agenda/         catálogo, pacientes y futuros módulos de Agenda
 internal/expediente/     RF15
 internal/audit/          RF19 y almacén RF18
 migrations/<servicio>/   migraciones por base de datos
 seed/                    datos de prueba
 keycloak/                realm, roles y clients
 deploy/                  PostgreSQL, pruebas de infraestructura y proxy
-docs/                    arquitectura y contratos entre servicios
+docs/                    documento de diseño y documento de pruebas
 ~~~
 
 ## Estado
 
 | Implementado | Pendiente / integración futura |
 |---|---|
-| RF1, RF2, RF3, RF4, RF17 y RF19 | RF5–RF14, RF16, RF20 y RF21 |
+| RF1, RF2, RF3, RF4, RF14, RF17 y RF19 | RF5–RF13, RF16, RF20 y RF21 |
 | Núcleo RF15: BD, autorización, API, aislamiento lógico, auditoría read/write y contrato hacia Agenda | Endpoint de contexto de cita en Agenda para completar RF15 end-to-end |
-| Infraestructura RF18: outbox transaccional, relay, bitácora central idempotente e inmutable | Productor RF18 de contacto de pacientes cuando RF14 sea implementado |
+| Infraestructura RF18: outbox transaccional, relay, bitácora central idempotente e inmutable, y productor de contacto de pacientes en Agenda, con pruebas de integración | — |
 | Bases por servicio, owner/app/readonly y aislamiento de credenciales | RLS y roles de dominio alineados con la matriz, según el módulo del equipo |
 | JWT/OIDC, permisos, signed `clinic_id`, saga RF1 y clientes service-to-service | Disponibilidad, concurrencia de citas, caché Redis y pruebas de carrera |
 | Tests reales de privilegios, invariantes de auditoría, JWT/proxy, aislamiento multi-tenant y entrega de relays | Suite de integración de los RF restantes de Agenda |
