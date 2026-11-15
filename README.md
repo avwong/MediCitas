@@ -216,7 +216,7 @@ Reglas de las citas:
 - El desenlace solo se registra cuando ya pasó la hora de inicio de la cita.
 - Cancelar o reprogramar libera el espacio de inmediato: la siguiente consulta de disponibilidad ya lo ofrece.
 
-Cómo se resuelven dos reservas simultáneas por el mismo espacio, el nivel de aislamiento, los candados y la política de la caché están explicados en [`docs/concurrencia-y-cache.md`](docs/concurrencia-y-cache.md).
+Cómo se resuelven dos reservas simultáneas por el mismo espacio, el nivel de aislamiento, los candados y la política de la caché están explicados en la sección 5 de [`docs/design.md`](docs/design.md).
 
 ### Expediente
 
@@ -346,7 +346,7 @@ migrations/<servicio>/   migraciones por base de datos
 seed/                    datos de prueba
 keycloak/                realm, roles y clients
 deploy/                  PostgreSQL, pruebas de infraestructura y proxy
-docs/                    diseño, concurrencia y caché, y pruebas
+docs/                    diseño (con concurrencia y caché) y pruebas
 ~~~
 
 ## Estado
@@ -363,4 +363,4 @@ docs/                    diseño, concurrencia y caché, y pruebas
 
 ## Declaración de uso de inteligencia artificial
 
-Se usó Claude como asistente durante el proyecto: propuso alternativas de diseño, ayudó a repartir las tareas entre los integrantes, redactó la documentación, comentó los archivos y ejecutó las pruebas contra la pila real para comprobar que todo funcionara.
+Se usó Claude como asistente durante el proyecto: propuso alternativas de diseño y nos brindó información para la toma de decisiones, ayudó a repartir las tareas entre los integrantes, ayudó a generar código, redactó la documentación, comentó los archivos y ejecutó pruebas para comprobar que todo funcionara.

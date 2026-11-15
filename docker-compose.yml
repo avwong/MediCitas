@@ -90,7 +90,7 @@ services:
       OUTBOX_CLIENT_SECRET: ${AGENDA_CLIENT_SECRET}
       # Caché de disponibilidad (RF7). Con REDIS_ADDR vacío en el entorno,
       # Agenda calcula cada consulta contra la base; se usa para medir la
-      # diferencia (docs/concurrencia-y-cache.md).
+      # diferencia (docs/design.md, sección 5.6).
       REDIS_ADDR: ${REDIS_ADDR-redis:6379}
     healthcheck: *service-healthcheck
     depends_on:

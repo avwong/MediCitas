@@ -2,7 +2,7 @@
 // contra la pila en ejecución. Sirve para comparar la respuesta con la caché
 // y sin ella: se ejecuta una vez con Agenda conectada a Redis y otra con
 // Agenda arrancada sin REDIS_ADDR. El procedimiento está en
-// docs/concurrencia-y-cache.md.
+// docs/design.md, sección 5.6.
 //
 // Fija por un momento el horario de un profesional de la clínica Demo y lo
 // restaura al terminar. No crea citas.
