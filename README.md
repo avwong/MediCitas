@@ -101,7 +101,7 @@ Todas las rutas reciben y devuelven JSON. Los errores tienen la forma `{"error":
 
 ### Agenda
 
-Actualmente están implementados RF3, RF4 y RF14. Catálogo y profesionales (RF3 y RF4):
+Están implementados RF3 a RF14. Catálogo y profesionales (RF3 y RF4):
 
 | Método y ruta | Rol | Entrada | Salida | Códigos |
 |---|---|---|---|---|
@@ -139,7 +139,58 @@ Reglas de los pacientes:
 
 La semilla incluye 13 pacientes de ejemplo: 6 en Clínica Demo, 3 en Clínica Norte y 4 en Clínica Sur.
 
-RF5–RF13, RF16, RF20 y RF21 pertenecen a Agenda y se incorporarán sobre esta misma frontera de servicio.
+Horarios y bloqueos (RF5 y RF6):
+
+| Método y ruta | Rol | Entrada | Salida | Códigos |
+|---|---|---|---|---|
+| `GET /api/v1/practitioners/{id}/schedule` | personal de la clínica | — | `{blocks: [bloque]}` | 200, 400, 404 |
+| `PUT /api/v1/practitioners/{id}/schedule` | `clinic_admin`; `practitioner` solo el propio | `blocks`: lista de `weekday` (1 lunes a 7 domingo), `start_time` y `end_time` (`HH:MM`) | `{blocks, conflicts: [cita]}` | 200, 400, 403, 404 |
+| `POST /api/v1/practitioners/{id}/blocks` | `clinic_admin`; `practitioner` solo los propios | `starts_at`, `ends_at` (RFC 3339), `reason` | `{block, conflicts: [cita]}` | 201, 400, 403, 404 |
+| `GET /api/v1/practitioners/{id}/blocks` | personal de la clínica | `from` y `to` (`AAAA-MM-DD`), opcionales | `{items: [bloqueo]}` | 200, 400, 404 |
+| `GET /api/v1/practitioners/{id}/blocks/{block_id}/conflicts` | personal de la clínica | — | `{items: [cita]}` | 200, 400, 404 |
+| `DELETE /api/v1/practitioners/{id}/blocks/{block_id}` | `clinic_admin`; `practitioner` solo los propios | — | — | 204, 400, 403, 404 |
+
+- `PUT …/schedule` reemplaza el horario semanal completo. Un día admite varios bloques (por ejemplo mañana y tarde), que no pueden solaparse. Las horas están en la zona horaria de la clínica; `end_time` admite `24:00`.
+- Ni un bloqueo ni un cambio de horario cancelan citas: las citas vigentes que quedan dentro del bloqueo, o fuera del horario nuevo, se devuelven en `conflicts` para que recepción las reprograme.
+
+Disponibilidad (RF7 y RF8):
+
+| Método y ruta | Rol | Entrada | Salida | Códigos |
+|---|---|---|---|---|
+| `GET /api/v1/practitioners/{id}/availability` | personal de la clínica | `service_id` y `date` (`AAAA-MM-DD`) | `{practitioner_id, service_id, date, slots: [{starts_at, ends_at}]}` | 200, 400, 404 |
+| `GET /api/v1/availability` | personal de la clínica | `service_id`, `from` y `to` (`AAAA-MM-DD`, hasta 31 días) | `{items: [{practitioner_id, display_name, date, slots}]}` | 200, 400, 404 |
+
+- Los espacios salen del horario del día, menos los bloqueos y las citas vigentes, divididos según la duración del servicio. Van en la hora local de la clínica y nunca incluyen espacios que ya empezaron.
+- RF7 se sirve desde Redis. El encabezado `X-Cache` de la respuesta dice si salió de la caché (`hit`) o se calculó contra la base (`miss`).
+
+Citas (RF9 a RF13):
+
+| Método y ruta | Rol | Entrada | Salida | Códigos |
+|---|---|---|---|---|
+| `POST /api/v1/appointments` | `clinic_admin`, `reception` | `patient_id`, `practitioner_id`, `service_id`, `starts_at` (RFC 3339) | cita | 201, 400, 404, 409 |
+| `GET /api/v1/appointments/{id}` | personal de la clínica | — | cita | 200, 400, 404 |
+| `POST /api/v1/appointments/{id}/reschedule` | `clinic_admin`, `reception` | `starts_at`; `practitioner_id` opcional | cita nueva | 201, 400, 404, 409 |
+| `POST /api/v1/appointments/{id}/cancel` | `clinic_admin`, `reception` | `reason` | cita | 200, 400, 404, 409 |
+| `POST /api/v1/appointments/{id}/outcome` | personal de la clínica | `outcome`: `attended` o `no_show` | cita | 200, 400, 404, 409 |
+
+La reserva distingue sus tres desenlaces:
+
+- **201, concedida.** Devuelve la cita en estado `booked`.
+- **409, espacio no disponible.** El mensaje dice por qué: `slot already taken` (otra cita vigente del profesional), `the patient already has an appointment at that time`, `the slot is outside the practitioner's schedule` o `the practitioner's agenda is blocked at that time`.
+- **400, solicitud inválida.** Identificadores o fecha mal formados, o un inicio en el pasado. Un paciente, profesional o servicio que no existe en la clínica responde 404.
+
+Reglas de las citas:
+
+- La duración la fija el servicio: la petición no lleva hora de fin, y cualquier valor que se envíe se ignora.
+- Los estados son `booked`, `attended`, `no_show`, `cancelled` y `rescheduled`. Desde `booked` se pasa a cualquiera de los otros cuatro, que son finales: cualquier operación sobre una cita en estado final responde 409.
+- Reprogramar cierra la cita como `rescheduled` y crea una nueva, que la referencia en `rescheduled_from_id`, todo en una transacción. Si el espacio nuevo no se puede tomar, la cita original queda intacta.
+- Cancelar exige un motivo y registra quién canceló (`closed_by`) y cuándo (`closed_at`).
+- El desenlace solo se registra cuando ya pasó la hora de inicio de la cita.
+- Cancelar o reprogramar libera el espacio de inmediato: la siguiente consulta de disponibilidad ya lo ofrece.
+
+Cómo se resuelven dos reservas simultáneas por el mismo espacio, el nivel de aislamiento, los candados y la política de la caché están explicados en [`docs/concurrencia-y-cache.md`](docs/concurrencia-y-cache.md).
+
+RF16, RF20 y RF21 pertenecen a Agenda y se incorporarán sobre esta misma frontera de servicio.
 
 ### Expediente
 
@@ -158,7 +209,7 @@ La lectura se filtra simultáneamente por clínica, id de nota y subject del pro
 
 La creación y cada lectura escriben respectivamente `clinical_note.write` y `clinical_note.read` en `audit_outbox` dentro de la misma transacción de `expediente_db`.
 
-El extremo de Expediente está listo; la creación de punta a punta quedará habilitada cuando Agenda implemente su parte del contrato descrito en «Rutas internas».
+Antes de aceptar la nota, Expediente verifica la cita con Agenda por el contrato descrito en «Rutas internas».
 
 ### Auditoría
 
@@ -183,16 +234,13 @@ Agenda actualmente expone:
 - `PUT /internal/clinics/{id}`
 - `DELETE /internal/clinics/{id}`
 - `PUT /internal/practitioners/by-user/{user_id}/active`, con el cuerpo `{"active": true|false}`
+- `GET /internal/appointments/{id}/clinical-note-context`
 
 Tenancy utiliza esas rutas con su cuenta de servicio: las dos primeras para aprovisionar clínicas y la tercera para que el profesional de Agenda refleje el estado de su usuario. Es idempotente y responde 204 aunque el usuario no tenga profesional registrado.
 
-Expediente queda preparado para consumir, cuando el módulo de citas exista:
+Expediente usa la última para verificar la cita antes de aceptar una nota clínica (RF15). Esa llamada reenvía **el token original del profesional**, no un `clinic_id` en encabezados ni parámetros. Agenda valida el token, exige el permiso `notes:own` y devuelve únicamente el contexto de una cita de esa clínica; una cita de otra clínica responde 404.
 
-- `GET /internal/appointments/{id}/clinical-note-context`
-
-Esa llamada reenviará **el token original del profesional**, no un `clinic_id` en encabezados ni parámetros. Agenda deberá validar el token y devolver únicamente el contexto de una cita visible para esa clínica.
-
-Respuesta esperada, con el estado `attended` para una cita atendida:
+Respuesta, con el estado `attended` para una cita atendida:
 
 ~~~json
 {
@@ -252,9 +300,10 @@ docker compose --profile test run --rm audit-invariants-test
 docker compose --profile test run --build --rm p1-api-integration-test
 docker compose --profile test run --rm audit-relay-test
 docker compose --profile test run --build --rm agenda-api-integration-test
+docker compose --profile test run --build --rm citas-api-integration-test
 ~~~
 
-En orden, estos comandos comprueban: las pruebas unitarias, el análisis estático, el Compose, los privilegios de PostgreSQL, la inmutabilidad de la auditoría, la autenticación y el aislamiento entre clínicas, la entrega de los relays y los pacientes con su auditoría. Lo que demuestra cada una está en [`docs/pruebas.md`](docs/pruebas.md).
+En orden, estos comandos comprueban: las pruebas unitarias, el análisis estático, el Compose, los privilegios de PostgreSQL, la inmutabilidad de la auditoría, la autenticación y el aislamiento entre clínicas, la entrega de los relays, los pacientes con su auditoría, y los horarios, la disponibilidad y las citas, con la prueba de carrera y la de la caché. Lo que demuestra cada una está en [`docs/pruebas.md`](docs/pruebas.md).
 
 ## Estructura
 
@@ -262,23 +311,24 @@ En orden, estos comandos comprueban: las pruebas unitarias, el análisis estáti
 cmd/<servicio>/          binario de cada servicio
 internal/platform/       auth, DB/TxManager, HTTP, outbox, clientes internos
 internal/tenancy/        RF1 y RF2
-internal/agenda/         catálogo, pacientes y futuros módulos de Agenda
+internal/agenda/         catálogo, pacientes, horarios, disponibilidad y citas
 internal/expediente/     RF15
 internal/audit/          RF19 y almacén RF18
 migrations/<servicio>/   migraciones por base de datos
 seed/                    datos de prueba
 keycloak/                realm, roles y clients
 deploy/                  PostgreSQL, pruebas de infraestructura y proxy
-docs/                    documento de diseño y documento de pruebas
+docs/                    diseño, concurrencia y caché, y pruebas
 ~~~
 
 ## Estado
 
 | Implementado | Pendiente / integración futura |
 |---|---|
-| RF1, RF2, RF3, RF4, RF14, RF17 y RF19 | RF5–RF13, RF16, RF20 y RF21 |
-| Núcleo RF15: BD, autorización, API, aislamiento lógico, auditoría de lectura y escritura y contrato hacia Agenda | Ruta de contexto de cita en Agenda para completar RF15 de punta a punta |
+| RF1 a RF15, RF17 y RF19 | RF16, RF20 y RF21 |
+| RF15 de punta a punta: BD, autorización, API, aislamiento lógico, auditoría de lectura y escritura y verificación de la cita en Agenda | — |
 | Infraestructura RF18: outbox transaccional, relay, bitácora central idempotente e inmutable, y productor de contacto de pacientes en Agenda, con pruebas de integración | — |
 | Bases por servicio, owner/app/readonly y aislamiento de credenciales | RLS y roles de dominio alineados con la matriz, según el módulo del equipo |
-| JWT/OIDC, permisos, `clinic_id` firmado, saga RF1 y clientes entre servicios | Disponibilidad, concurrencia de citas, caché Redis y pruebas de carrera |
-| Pruebas reales de privilegios, invariantes de auditoría, JWT/proxy, aislamiento multi-tenant y entrega de relays | Suite de integración de los RF restantes de Agenda |
+| JWT/OIDC, permisos, `clinic_id` firmado, saga RF1 y clientes entre servicios | — |
+| Disponibilidad, reserva y ciclo de vida de la cita con sus invariantes (I1, I2, I3, I4, I7), caché de disponibilidad en Redis (I8) y medición con y sin caché | Semilla de horarios, bloqueos y citas |
+| Pruebas reales de privilegios, invariantes de auditoría, JWT/proxy, aislamiento multi-tenant, entrega de relays, citas, carrera y caché | Pruebas de integración de RF16, RF20 y RF21 |

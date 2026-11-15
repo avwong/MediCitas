@@ -2,14 +2,14 @@
 
 Este documento reúne el diseño de MediCitas: el modelo de datos, la estrategia de multi-tenancy, la arquitectura de servicios y la seguridad de la base de datos. Cada decisión viene con las alternativas que se consideraron y lo que se sacrificó.
 
-**Estado:** las tablas de horarios, bloqueos y citas de Agenda todavía no existen en el repositorio. Cada sección que depende de ellas está marcada como pendiente.
+**Estado:** los horarios, los bloqueos y las citas de Agenda ya están implementados. Sus decisiones de concurrencia y de caché están en [`concurrencia-y-cache.md`](concurrencia-y-cache.md); aquí queda el resumen.
 
 | Sección | Estado |
 |---|---|
 | 1. Modelo de datos: diagramas ER, 3FN y desnormalizaciones | Completo para las tablas existentes |
 | 1.5 Diccionario de datos | Pendiente |
 | 2. Multi-tenancy: comparación y decisión | Completo; las mediciones de RLS están pendientes |
-| 3. Arquitectura de servicios | Completo; las decisiones de concurrencia y de caché dependen de Agenda |
+| 3. Arquitectura de servicios | Completo; el detalle de concurrencia y caché está en `concurrencia-y-cache.md` |
 | 4. Seguridad de la base de datos y auditoría | Completo |
 
 ---
@@ -374,7 +374,7 @@ El enunciado exige documentar cada desnormalización con su motivo. Estas son to
 
 ### 1.5 Pendiente
 
-- **Lógica de horarios, bloqueos y citas.** El esquema ya existe (migraciones `0005` a `0007` de Agenda), con las restricciones de exclusión de I1 e I2 (ver la sección 3.4). Faltan las rutas y los casos de uso que lo usan.
+- **Datos de ejemplo de horarios, bloqueos y citas.** El esquema (migraciones `0005` a `0007` de Agenda) y las rutas ya existen; la semilla todavía no los llena.
 - **Diccionario de datos** de las cuatro bases, que irá en esta sección.
 
 ---
@@ -578,10 +578,10 @@ Alta de una clínica (RF1): toca tres sistemas (la base de Tenancy, Keycloak y A
 | **I4** Duración fijada por el servicio | `ends_at` se calcula a partir de la duración del servicio dentro del mismo `INSERT`, y un trigger impide modificarlo después | Agenda (motor) |
 | **I5** Aislamiento entre clínicas | `clinic_id` tomado del token firmado, nunca de la petición. Llaves foráneas compuestas `(clinic_id, id)` en todas las relaciones. Una base por servicio. RLS como segunda capa (ver la sección 2) | Todos |
 | **I6** Bitácora inmodificable | Rol de la aplicación con solo `INSERT` y `SELECT`, y un trigger que rechaza `UPDATE` y `DELETE`, tanto en `audit_log` como en cada `audit_outbox` (ver la sección 4.3) | Auditoría, Agenda, Expediente |
-| **I7** Cancelar o reprogramar libera de inmediato | El cambio de estado excluye la cita de la restricción de exclusión en la misma transacción, y la caché se invalida tras el commit | Agenda |
-| **I8** La caché no contradice la base | Invalidación después del commit, con un número de versión por agenda (ver la sección 3.7) | Agenda y Redis |
+| **I7** Cancelar o reprogramar libera de inmediato | El cambio de estado excluye la cita de la restricción de exclusión en la misma transacción, y la versión de la agenda en la caché sube antes y después del commit | Agenda |
+| **I8** La caché no contradice la base | Número de versión por agenda dentro de la clave, que sube antes y después del commit de cada cambio (ver la sección 3.7) | Agenda y Redis |
 
-El esquema que sostiene I1, I2, I4 e I7 ya existe (migración `0007_appointments` de Agenda). I3 y el resto de la reserva son diseño previsto: la lógica de la aplicación todavía no está implementada.
+Todos estos mecanismos están implementados. El nivel de aislamiento elegido, el manejo de deadlocks y las pruebas que lo demuestran están en [`concurrencia-y-cache.md`](concurrencia-y-cache.md).
 
 **Nivel de aislamiento de las transacciones.** Se propone **READ COMMITTED**, el que usa PostgreSQL por defecto, porque I1 e I2 los garantiza la restricción de exclusión y no la lectura previa. La decisión final, su comparación con SERIALIZABLE y el manejo de deadlocks (orden de bloqueo consistente y reintento ante `40P01` y `40001`) quedan para el documento de concurrencia de Agenda.
 
@@ -620,15 +620,15 @@ Dependencias entre servicios, y qué pasa si el destino no responde:
 
 **La reserva (RF9) no depende de ningún otro servicio.**
 
-### 3.7 Caché de disponibilidad (propuesta)
+### 3.7 Caché de disponibilidad
 
-Pendiente de decisión y medición por quien implemente la caché. La propuesta de diseño es:
+La consulta de disponibilidad de un profesional (RF7) se sirve desde Redis. El detalle, las alternativas descartadas y la medición están en [`concurrencia-y-cache.md`](concurrencia-y-cache.md). En resumen:
 
-- **Clave** por profesional, fecha y servicio, que incluye un **número de versión de esa agenda**: `avail:{clinica}:{profesional}:{fecha}:{servicio}:v{n}`.
-- **Invalidación:** tras el commit de cualquier cambio que afecte esa agenda (reserva, cancelación, reprogramación, bloqueo o cambio de horario) se incrementa la versión.
+- **Clave** por clínica, profesional, fecha y servicio, que incluye un **número de versión de esa agenda**: `avail:{clinica}:{profesional}:{fecha}:{servicio}:v{n}`.
+- **Invalidación:** todo cambio que afecta a una agenda (reserva, cancelación, reprogramación, desenlace, bloqueo, cambio de horario o cambio en el catálogo) incrementa su versión. Las operaciones de citas lo hacen dos veces, antes y después del commit.
 - **Lectura:** un lector obtiene la versión **antes** de leer la base y guarda el resultado bajo esa versión. Si una reserva hace commit mientras tanto, la versión sube y el resultado viejo queda huérfano: nadie lo vuelve a leer. Así se evita la carrera clásica en que una lectura vieja se escribe en la caché después de haberla invalidado.
-- **Redis no es fuente de verdad:** la fuente sigue siendo la base relacional.
-- **Por decidir:** qué hacer si Redis no responde durante la invalidación (por ejemplo, no servir desde la caché mientras no esté sano).
+- **Redis no es fuente de verdad:** la fuente sigue siendo la base relacional, y las reservas nunca dependen de la caché.
+- **Si Redis no responde:** las consultas se calculan contra la base. Si lo que falla es una invalidación, esa agenda deja de servirse desde la caché hasta que la invalidación se logra.
 
 ---
 
