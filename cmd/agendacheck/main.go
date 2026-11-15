@@ -1,7 +1,8 @@
 // Command agendacheck ejecuta las pruebas de integración de Agenda contra la
 // pila real de Compose. Hoy cubre RF14 (pacientes), RF18 (auditoría de
-// contacto) e I5 (aislamiento entre clínicas). Cada prueba lleva en su nombre
-// el requisito o invariante que sostiene, para la trazabilidad.
+// contacto), RF20 (agenda del día), RF21 (conteo de citas por estado) e I5
+// (aislamiento entre clínicas). Cada prueba lleva en su nombre el requisito o
+// invariante que sostiene, para la trazabilidad.
 package main
 
 import (
@@ -74,6 +75,9 @@ type suite struct {
 	platformAdmin  string
 	northReception string
 	northAdmin     string
+	southReception string
+	southAdmin     string
+	practitioner2  string
 
 	// runID hace únicas las identificaciones de cada ejecución, para que las
 	// pruebas se puedan repetir sin chocar con datos de ejecuciones
@@ -140,6 +144,9 @@ func (s *suite) login(ctx context.Context) error {
 		{&s.platformAdmin, "platform.admin", "Platform123!"},
 		{&s.northReception, "norte.reception", "Norte123!"},
 		{&s.northAdmin, "norte.admin", "Norte123!"},
+		{&s.southReception, "sur.reception", "Sur123!"},
+		{&s.southAdmin, "sur.admin", "Sur123!"},
+		{&s.practitioner2, "practitioner2", "Practitioner123!"},
 	}
 
 	for _, user := range users {
@@ -379,6 +386,19 @@ func (s *suite) run(ctx context.Context) int {
 		{"RF14 búsqueda por prefijo, límite y comodines literales", s.searchAndLimit},
 		{"RF18 cada acceso al contacto queda en la bitácora, y solo esos", s.auditTrailIsExact},
 		{"I5 la bitácora de otra clínica no muestra esos eventos", s.otherClinicCannotSeeAudit},
+		{"RF20 recepción ve la agenda de toda la clínica, sin contacto de pacientes", s.agendaClinicWide},
+		{"RF20 la agenda de un profesional solo trae sus citas", s.agendaOfPractitioner},
+		{"RF20 la agenda se filtra por estado", s.agendaStatusFilter},
+		{"RF20 el profesional solo ve su propia agenda (403 con la de otro)", s.practitionerSeesOnlyOwnAgenda},
+		{"RF20 las entradas inválidas se rechazan (400) y un profesional inexistente es 404", s.agendaInvalidInputs},
+		{"RF20 cada clínica ve las horas en su zona horaria", s.agendaTimezone},
+		{"RF17 la agenda exige token (401) y el rol adecuado (403)", s.agendaPermissions},
+		{"I5 la agenda no cruza clínicas, ni con parámetros manipulados", s.agendaDoesNotCrossClinics},
+		{"RF21 el conteo por estado de cada clínica coincide con la semilla", s.countsMatchTheSeed},
+		{"RF21 el rango incluye sus dos extremos y los estados sin citas salen en cero", s.countsRangeAndZeros},
+		{"RF21 las entradas inválidas se rechazan (400)", s.countsInvalidInputs},
+		{"RF17 el conteo exige token (401) y es solo de administración (403)", s.countsPermissions},
+		{"I5 el conteo ignora una clínica enviada en los parámetros", s.countsIgnoreForgedClinic},
 	}
 
 	failed := 0

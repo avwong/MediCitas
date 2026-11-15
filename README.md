@@ -103,7 +103,7 @@ Todas las rutas reciben y devuelven JSON. Los errores tienen la forma `{"error":
 
 ### Agenda
 
-Actualmente están implementados RF3, RF4 y RF14. Catálogo y profesionales (RF3 y RF4):
+Actualmente están implementados RF3, RF4, RF14, RF20 y RF21. Catálogo y profesionales (RF3 y RF4):
 
 | Método y ruta | Rol | Entrada | Salida | Códigos |
 |---|---|---|---|---|
@@ -141,7 +141,25 @@ Reglas de los pacientes:
 
 La semilla incluye 13 pacientes de ejemplo: 6 en Clínica Demo, 3 en Clínica Norte y 4 en Clínica Sur.
 
-RF5–RF13, RF16, RF20 y RF21 pertenecen a Agenda y se incorporarán sobre esta misma frontera de servicio.
+Agenda del día (RF20) y conteo de citas por estado (RF21):
+
+| Método y ruta | Rol | Entrada | Salida | Códigos |
+|---|---|---|---|---|
+| `GET /api/v1/agenda` | `clinic_admin`, `reception`, `practitioner` | `date` (`AAAA-MM-DD`, obligatorio); opcionales `practitioner_id` y `status` | `{date, timezone, practitioner_id, items: [cita]}` | 200, 400, 403, 404 |
+| `GET /api/v1/reports/appointments-by-status` | `clinic_admin` | `from` y `to` (`AAAA-MM-DD`, obligatorios) | `{from, to, timezone, counts, total}` | 200, 400 |
+
+Reglas de la agenda y el conteo:
+
+- Sin `practitioner_id`, la agenda es la de toda la clínica, que es la vista de recepción. Con él, es la de ese profesional. Un `practitioner_id` que no existe en la clínica, o que es de otra, responde 404.
+- El profesional solo ve su propia agenda: sin el parámetro recibe la suya, y si pide la de otro profesional responde 403.
+- `status` filtra por `booked`, `attended`, `no_show`, `cancelled` o `rescheduled`. Sin él salen todas las citas del día, ordenadas por hora de inicio.
+- Cada cita trae el paciente (`id`, `identification`, `first_name`, `last_name`), el profesional y el servicio. El paciente va **sin datos de contacto**, por lo que ver la agenda no se audita.
+- El día de la agenda y el rango del conteo se interpretan en la zona horaria de la clínica, y las horas salen en esa zona. Una cita a las 23:30 de Costa Rica pertenece a ese día aunque en UTC ya sea el siguiente.
+- El conteo incluye los dos extremos (`from` y `to` pueden ser el mismo día), cuenta por la hora de inicio de la cita y acepta un rango de hasta 366 días. Los cinco estados salen siempre, con cero cuando no hay citas.
+- El conteo es de administración: no está en la matriz del enunciado, y se limitó a quien gestiona la clínica. La agenda tampoco está en la matriz y se concedió a los tres roles de clínica.
+- La clínica nunca viaja en la petición: se toma del `clinic_id` firmado, y un `clinic_id` enviado en los parámetros se ignora.
+
+RF5–RF13 y RF16 pertenecen a Agenda y se incorporarán sobre esta misma frontera de servicio.
 
 ### Expediente
 
@@ -256,7 +274,7 @@ docker compose --profile test run --rm audit-relay-test
 docker compose --profile test run --build --rm agenda-api-integration-test
 ~~~
 
-En orden, estos comandos comprueban: las pruebas unitarias, el análisis estático, el Compose, los privilegios de PostgreSQL, la inmutabilidad de la auditoría, la autenticación y el aislamiento entre clínicas, la entrega de los relays y los pacientes con su auditoría. Lo que demuestra cada una está en [`docs/pruebas.md`](docs/pruebas.md).
+En orden, estos comandos comprueban: las pruebas unitarias, el análisis estático, el Compose, los privilegios de PostgreSQL, la inmutabilidad de la auditoría, la autenticación y el aislamiento entre clínicas, la entrega de los relays y los pacientes con su auditoría, la agenda del día y el conteo por estado. Lo que demuestra cada una está en [`docs/pruebas.md`](docs/pruebas.md).
 
 ## Estructura
 
@@ -264,7 +282,7 @@ En orden, estos comandos comprueban: las pruebas unitarias, el análisis estáti
 cmd/<servicio>/          binario de cada servicio
 internal/platform/       auth, DB/TxManager, HTTP, outbox, clientes internos
 internal/tenancy/        RF1 y RF2
-internal/agenda/         catálogo, pacientes y futuros módulos de Agenda
+internal/agenda/         catálogo, pacientes, agenda del día, reportes y futuros módulos de Agenda
 internal/expediente/     RF15
 internal/audit/          RF19 y almacén RF18
 migrations/<servicio>/   migraciones por base de datos

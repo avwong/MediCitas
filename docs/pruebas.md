@@ -44,6 +44,17 @@ Validan el comportamiento de los paquetes, las reglas de autorización, la lógi
 - que el listado no audite;
 - que todas las operaciones usen la clínica del actor y que ninguna entrada tenga un campo de clínica.
 
+**Agenda del día y conteo por estado (RF20, RF21), en `internal/agenda/reports_test.go`.** Cada prueba indica en un comentario `Cubre` el requisito o invariante que sostiene. Verifican, entre otras cosas:
+
+- que las fechas, el estado, el profesional y el rango se validen antes de abrir la transacción, incluido el límite de 366 días;
+- que la agenda sin profesional sea la de toda la clínica, y que un profesional pedido que no existe en la clínica sea 404;
+- que un profesional reciba su propia agenda por defecto y no pueda ver la de otro (403);
+- que las horas salgan en la zona de la clínica;
+- que el paciente de la agenda no tenga campos de contacto;
+- que el conteo devuelva siempre los cinco estados, con cero cuando no hay citas, y sume el total;
+- que todas las consultas usen la clínica del actor, en transacciones de solo lectura;
+- los permisos de cada rol sobre la agenda y el conteo.
+
 **Notas clínicas (RF15).** Verifican, entre otras cosas:
 
 - que solo el profesional autorizado llegue al verificador de Agenda;
@@ -111,13 +122,13 @@ docker compose --profile test run --rm audit-relay-test
 
 Inserta eventos sintéticos en los outbox reales de Agenda y Expediente. Los relays en ejecución deben descubrir el evento pendiente, obtener su token de cuenta de servicio, llamar a la ruta privada de Auditoría, guardar el evento en `audit_log` y registrar la entrega por separado en `audit_outbox_delivered`. Los eventos sintéticos usan una clínica de prueba que no es una de las clínicas de la semilla, así que no aparecen en las demostraciones normales de RF19. Última línea esperada: `All audit relay delivery checks passed.`
 
-### 3.5 Agenda: pacientes, auditoría de contacto e I5
+### 3.5 Agenda: pacientes, agenda del día, conteo por estado e I5
 
 ~~~bash
 docker compose --profile test run --build --rm agenda-api-integration-test
 ~~~
 
-Son 23 comprobaciones sobre la API (`cmd/agendacheck`). Cada una lleva en su nombre el requisito o invariante que sostiene. Se pueden repetir sin preparar datos, porque cada ejecución usa identificaciones únicas. Verifican:
+Son 36 comprobaciones sobre la API (`cmd/agendacheck`): 23 de pacientes y 13 de la agenda y el conteo. Cada una lleva en su nombre el requisito o invariante que sostiene. Se pueden repetir sin preparar datos, porque cada ejecución usa identificaciones únicas. Las de RF20 y RF21 se apoyan en las citas de `seed/agenda.sql`. Las de pacientes verifican:
 
 - los permisos por rol (recepción y administración escriben, el profesional solo lee, la administración de plataforma no accede) y el 401 sin token;
 - las validaciones, el conflicto por identificación repetida y que las tildes se conserven;
@@ -126,6 +137,15 @@ Son 23 comprobaciones sobre la API (`cmd/agendacheck`). Cada una lleva en su nom
 - que el listado no exponga datos de contacto;
 - que la bitácora central tenga **exactamente** los accesos al contacto que se hicieron, y que las operaciones rechazadas no dejen eventos;
 - que la bitácora de otra clínica no muestre esos eventos.
+
+Las de la agenda y el conteo verifican:
+
+- la agenda de toda la clínica y la de un profesional, con las citas de la semilla, ordenadas por hora y sin datos de contacto del paciente;
+- el filtro por estado, y que el profesional vea solo su agenda (403 si pide la de otro);
+- las horas de pared de cada clínica: las 08:00 de Costa Rica (`-06:00`) y las 08:00 de Bogotá (`-05:00`);
+- que el conteo de cada clínica coincida con la semilla, que un rango de un solo día sea válido y que los estados sin citas salgan en cero;
+- las entradas inválidas (400), el 401 sin token y el 403 de los roles que no corresponden;
+- que otra clínica no vea la agenda ni los conteos, ni con un `practitioner_id` ajeno ni con un `clinic_id` manipulado en los parámetros.
 
 Última línea esperada: `All Agenda integration checks passed.`
 
