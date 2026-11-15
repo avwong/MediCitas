@@ -9,7 +9,7 @@ Este documento reúne el diseño de MediCitas: el modelo de datos, la estrategia
 | 1. Modelo de datos: diagramas ER, 3FN y desnormalizaciones | Completo para las tablas existentes |
 | 1.5 Índices por especialidad: medición | Completo |
 | 1.6 Diccionario de datos | Pendiente |
-| 2. Multi-tenancy: comparación y decisión | Completo; RLS está implementado en `agenda_db` y sus mediciones están pendientes |
+| 2. Multi-tenancy: comparación y decisión | Completo, con RLS implementado en `agenda_db` y medido |
 | 3. Arquitectura de servicios | Completo; el detalle de concurrencia y caché está en `concurrencia-y-cache.md` |
 | 4. Seguridad de la base de datos y auditoría | Completo |
 
@@ -431,7 +431,7 @@ Hay tres cosas que la estrategia debe resistir:
 | **Conexiones y caché de planes** | Cada esquema tiene sus propios objetos, lo que reduce el aprovechamiento de planes y conexiones | **Aprovecha un solo conjunto de tablas** | Igual que B |
 | **Riesgo de fuga por descuido del programador** | Bajo | **El más alto: depende de no olvidar el filtro en cada consulta** | Bajo |
 | **Respaldo o restauración de una sola clínica** | **Fácil** | Difícil: hay que extraer sus filas | Difícil |
-| **Rendimiento** | Bueno | Bueno, con índices que empiezan por `clinic_id` | Depende: el motor evalúa la política en cada fila. **Se medirá** (sección 2.7) |
+| **Rendimiento** | Bueno | Bueno, con índices que empiezan por `clinic_id` | Depende: el motor evalúa la política en cada fila. **Medido:** con el filtro explícito, de 0,02 a 0,06 ms más por consulta rápida y sin diferencia medible en las largas (sección 2.7) |
 
 ### 2.3 Decisión
 
@@ -452,9 +452,9 @@ El punto débil de B es que el aislamiento depende de que **cada consulta** incl
 
 **Por qué RLS como segunda estrategia y no como principal**
 
-- Su rendimiento depende de las políticas y de los índices, y todavía no se ha medido.
+- Su rendimiento depende de las políticas y de los índices. Se midió (sección 2.7): con el filtro explícito el costo es mínimo, y sin él es mayor y más variable.
 - No resuelve el aislamiento relacional entre tablas, que sí resuelven las llaves foráneas compuestas.
-- Conviene tenerlo implementado y medido antes de decidir si pasa a ser obligatorio. La comparación con mediciones es parte del módulo extra.
+- Se implementó y se midió antes de decidir si pasa a ser obligatorio. El resultado está en la sección 2.7.
 
 ### 2.4 Cómo se implementa
 
@@ -517,7 +517,7 @@ RLS es la segunda estrategia de la sección 2.3, y ya está implementada en `age
 - **Falla hacia el lado seguro.** Sin `app.clinic_id`, `current_clinic_id()` es `NULL` y no se ve ninguna fila.
 - **Quién queda sujeto.** Los roles de la aplicación (`agenda_app` y `agenda_readonly`) son `NOBYPASSRLS` y no son dueños de las tablas. `agenda_owner` sí es dueño y no pasa por las políticas, pero solo se usa para migrar. No se activó `FORCE ROW LEVEL SECURITY`, para que una migración de datos futura no deje de actualizar filas sin avisar. Las semillas corren como superusuario.
 
-**Qué hubo que cambiar para que funcione.** Con RLS, una lectura que no fija la clínica no ve nada. Hasta entonces varias lecturas usaban el pool directo: cinco consultas del catálogo y unas veinte lecturas de horarios, disponibilidad y citas. Ahora todas corren dentro de `TxManager`, en una transacción de solo lectura con la clínica del token. Cuesta dos viajes más a la base por lectura, y a cambio la regla «toda consulta corre en `TxManager`» se cumple sin excepciones en las tablas con RLS.
+**Qué hubo que cambiar para que funcione.** Con RLS, una lectura que no fija la clínica no ve nada. Hasta entonces varias lecturas usaban el pool directo: cinco consultas del catálogo y unas veinte lecturas de horarios, disponibilidad y citas. Ahora todas corren dentro de `TxManager`, en una transacción de solo lectura con la clínica del token. Cuesta unos viajes más a la base por lectura (abrir la transacción, fijar la clínica y cerrarla), y a cambio la regla «toda consulta corre en `TxManager`» se cumple sin excepciones en las tablas con RLS.
 
 **Las dos excepciones, y por qué**
 
@@ -528,7 +528,48 @@ RLS es la segunda estrategia de la sección 2.3, y ya está implementada en `age
 
 **Cómo se demuestra.** `rls-test` (sección 3.8 de `pruebas.md`) usa el rol real de la aplicación y consultas **sin ningún filtro de clínica**. Además, las pruebas de integración de los cuatro servicios siguen pasando con RLS activo, lo que demuestra que la aplicación funciona bajo las políticas.
 
-**Pendiente: las mediciones.** Falta comparar B (filtro `clinic_id`) contra C (RLS) sobre las mismas consultas, con su plan de ejecución y su tiempo, y concluir si RLS debe pasar a ser obligatoria. Hasta entonces, la decisión de la sección 2.3 se mantiene, y **no se afirma ningún resultado de rendimiento** que no se haya medido.
+**Mediciones: filtro `clinic_id` (B) contra RLS (C)**
+
+Se compararon tres estrategias sobre las mismas seis consultas de la aplicación. El script es `deploy/postgres/bench-rls.sql` y se puede repetir: corre en una transacción que se deshace.
+
+| Estrategia | Qué es |
+|---|---|
+| **B** | Filtro `clinic_id` en la consulta, sin RLS (rol dueño de las tablas, que no pasa por las políticas) |
+| **C1** | Filtro `clinic_id` **y** RLS, con el rol de la aplicación. Es lo que hace Agenda hoy |
+| **C2** | Solo RLS, con el rol de la aplicación y **sin ningún filtro de clínica** en la consulta |
+
+Los datos son 100 clínicas, con 30.000 pacientes, 2.000 profesionales y 200.000 citas, y se mide la clínica 50. Cada consulta se ejecuta entre 100 y 500 veces por ronda, planificándola de nuevo cada vez, en 5 rondas con el orden de las estrategias rotado. La ronda 1 calienta la caché y no cuenta. Se ejecutó el script completo **dos veces**. La tabla muestra la **mediana de las rondas 2 a 5**, en milisegundos por consulta.
+
+| Consulta | Corrida 1: B / C1 / C2 | Corrida 2: B / C1 / C2 |
+|---|---|---|
+| Q1 leer un paciente por id | 0,116 / 0,139 / 0,131 | 0,133 / 0,152 / 0,164 |
+| Q2 listado de pacientes (50, por nombre) | 0,214 / 0,256 / 0,251 | 0,245 / 0,309 / 0,315 |
+| Q3 agenda del día de toda la clínica (RF20) | 1,924 / 1,843 / 3,155 | 2,253 / 2,089 / 2,392 |
+| Q4 historial de un paciente (RF16) | 0,594 / 0,673 / 0,827 | 0,879 / 0,796 / 1,020 |
+| Q5 conteo por estado en 10 días (RF21) | 2,934 / 2,922 / 3,046 | 4,607 / 3,559 / 3,824 |
+| Q6 citas reservadas de un profesional en una franja (RF7) | 0,169 / 0,193 / 0,196 | 0,199 / 0,252 / 0,307 |
+| **Suma de las seis** | **5,950 / 6,025 / 7,604** | **8,315 / 7,155 / 8,021** |
+
+**Qué muestran los números**
+
+- **El ruido de la máquina es mayor que las diferencias entre estrategias.** Con el mismo script, el total de B pasó de 5,950 a 8,315 ms entre las dos corridas, un 40 % de variación. En cambio C1 contra B da +1,3 % en la corrida 1 y -14 % en la 2. Con esta evidencia **no se puede afirmar que RLS haga más lenta una consulta larga**.
+- **Hay un costo fijo pequeño y consistente.** En las tres consultas rápidas (Q1, Q2 y Q6), C1 fue más lento que B en las dos corridas, entre 0,02 y 0,06 ms por consulta (14 % a 27 %). Es el costo de evaluar la política y de planificar la consulta con ella. En las consultas largas (Q3, Q4 y Q5) la diferencia cambia de signo entre corridas y se pierde en el ruido.
+- **Quitar el filtro explícito (C2) no gana nada.** C2 resultó igual o más lento que C1 en el total de las dos corridas (+26 % y +12 %), y fue el peor en Q3 y Q4 en la corrida 1. Una explicación posible, **que no se verificó**, es que con la política el planificador compara contra una expresión que depende de `app.clinic_id` y no contra una constante, por lo que estima peor cuántas filas devuelve.
+- **El plan no cambia.** En el plan de Q3, la política de RLS aparece como una condición de índice más (`clinic_id = (NULLIF(current_setting('app.clinic_id', true), ''))::uuid`) sobre los mismos índices que usa B (`idx_appointments_practitioner_day` y `patients_clinic_id_unique`). En Q5 aparece igual, en la condición del recorrido de la tabla de citas. RLS no impide usar los índices que empiezan por `clinic_id`.
+
+**Limitaciones de esta medición**
+
+- **Es una sola máquina**, con PostgreSQL en Docker, con los datos en memoria y sin concurrencia. Mide el motor, no la red.
+- **Las consultas duran décimas de milisegundo.** A esa escala el ruido es del mismo orden que las diferencias, por eso se reporta la mediana de cuatro rondas y se repitió la corrida. Aun así, una diferencia de 0,02 ms no es una conclusión.
+- **No incluye el costo de la transacción.** Para que las políticas vean `app.clinic_id`, cada lectura corre ahora dentro de `TxManager`, con unos viajes más a la base por lectura. Eso se mide en la red y no dentro del motor, así que esta medición no lo cuenta.
+- **No es una medición de carga.** No hay clientes concurrentes, y el volumen (200.000 citas) es el de decenas de clínicas, no el de un servicio con miles.
+
+**Decisión**
+
+1. **RLS queda activo y obligatorio en las nueve tablas con datos de clínica de `agenda_db`**, como segunda capa. Su costo con el filtro explícito, de 0,02 a 0,06 ms por consulta rápida y sin diferencia medible en las largas, no es un motivo para dejarlo opcional.
+2. **No sustituye al filtro `clinic_id`.** Quitar el filtro y confiar solo en RLS (C2) no fue más rápido que C1 en el total de ninguna de las dos corridas, y además quita la defensa de la primera capa. B sigue siendo el mecanismo principal y C es la red de seguridad cuando una consulta olvida el filtro, que es justo el punto débil de B.
+3. **Lo que cuesta RLS no es velocidad.** Cuesta que toda consulta corra en una transacción con la clínica fijada, lo que obligó a cambiar unas veinticinco lecturas. Cuesta también dos excepciones documentadas (`audit_outbox` y `practitioner_clinic_of_user`) y que una consulta que olvida la clínica devuelva cero filas en lugar de un error, lo cual es más difícil de depurar.
+4. **No se extendió a los otros servicios.** RLS está solo en `agenda_db`, como pedía el módulo. Expediente sería el candidato natural, porque guarda las notas clínicas, pero no se hizo.
 
 ---
 
