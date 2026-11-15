@@ -9,7 +9,7 @@ Este documento reúne el diseño de MediCitas: el modelo de datos, la estrategia
 | 1. Modelo de datos: diagramas ER, 3FN y desnormalizaciones | Completo para las tablas existentes |
 | 1.5 Índices por especialidad: medición | Completo |
 | 1.6 Diccionario de datos | Pendiente |
-| 2. Multi-tenancy: comparación y decisión | Completo; las mediciones de RLS están pendientes |
+| 2. Multi-tenancy: comparación y decisión | Completo; RLS está implementado en `agenda_db` y sus mediciones están pendientes |
 | 3. Arquitectura de servicios | Completo; el detalle de concurrencia y caché está en `concurrencia-y-cache.md` |
 | 4. Seguridad de la base de datos y auditoría | Completo |
 
@@ -470,6 +470,7 @@ La protección tiene varias capas independientes. Si una falla, las otras siguen
 | **6. Respuesta sin filtraciones** | Un recurso de otra clínica responde **404**, igual que uno inexistente, para no revelar que existe. Una violación de llave foránea se traduce también a 404 | `database.MapError` |
 | **7. Una base por servicio** | Cada servicio solo puede conectarse a su propia base. Un servicio comprometido no alcanza las demás | Roles de PostgreSQL |
 | **8. Roles sin atajos** | Los roles de la aplicación son `NOSUPERUSER` y `NOBYPASSRLS`. No pueden omitir las políticas de RLS | Sección 4 |
+| **9. Row-Level Security en Agenda** | Una política por tabla en `agenda_db` deja ver y escribir solo las filas de la clínica de la transacción, aunque una consulta olvide el filtro. Sin clínica en la transacción no se ve ninguna fila (sección 2.7) | Migración `0009` |
 
 ### 2.5 Compromisos aceptados
 
@@ -494,6 +495,7 @@ El enunciado pide demostrar I5 con pruebas automáticas que incluyan **intentos 
 | Aislamiento de citas, horarios y bloqueos | Leer o modificar citas, horarios, bloqueos y disponibilidad de otra clínica, también con un `clinic_id` falsificado en el cuerpo o en la consulta | `cmd/citascheck` |
 | Aislamiento del historial, la agenda y el conteo | Ver el historial de un paciente, la agenda de un profesional o los conteos de otra clínica, con parámetros manipulados | `cmd/agendacheck` |
 | Fronteras entre bases | Conectarse con las credenciales de un servicio a la base de otro | `db-security-test` |
+| Row-Level Security | Con el rol real de la aplicación, leer sin ningún filtro de clínica: sin clínica en la sesión no se ve nada, y con una clínica solo sus filas, en las nueve tablas. Insertar, mover o modificar filas de otra clínica | `rls-test` (contra la base real) |
 | Matriz de las tres clínicas | Desde cada clínica, leer y modificar servicios, profesionales, pacientes, historiales, agendas, usuarios y notas clínicas de las otras dos, con `clinic_id` y `X-Clinic-Id` manipulados. Después comprueba que nada cambió | `cmd/leakcheck` (contra la pila real) |
 | Listados | Que los listados de usuarios, servicios, profesionales, pacientes y bitácora de cada clínica no traigan nada de otra, con parámetros manipulados | `cmd/leakcheck` |
 | Alta con la clínica falsificada | Crear un usuario pidiendo otra clínica en el cuerpo, la consulta y la cabecera: queda en la del token | `cmd/leakcheck` |
@@ -503,16 +505,30 @@ El enunciado pide demostrar I5 con pruebas automáticas que incluyan **intentos 
 
 `cmd/leakcheck` cubre los cuatro servicios: Tenancy, Agenda, Expediente y Auditoría. Empieza con una prueba de control que lee los recursos propios de cada clínica, para que un 404 de las demás pruebas signifique aislamiento y no una ruta inexistente.
 
-### 2.7 Pendiente: RLS y mediciones
+### 2.7 RLS en `agenda_db` y mediciones
 
-El módulo extra implementará RLS en `agenda_db` y comparará ambas estrategias **sobre las mismas consultas**, con pruebas de aislamiento y mediciones. Esta sección se completará con:
+RLS es la segunda estrategia de la sección 2.3, y ya está implementada en `agenda_db` (migración `0009`). Funciona **junto** con el filtro `clinic_id` de cada consulta y no lo reemplaza.
 
-- las políticas de RLS por tabla;
-- las pruebas que demuestren que RLS bloquea una consulta sin filtro;
-- las mediciones de B contra C, con la consulta, el plan de ejecución y el tiempo;
-- la conclusión sobre si RLS debe pasar a ser obligatoria.
+**Qué se implementó**
 
-Hasta entonces, la decisión de la sección 2.3 se mantiene, y **no se afirma ningún resultado de rendimiento** que no se haya medido.
+- **Una política por tabla**, llamada `clinic_isolation`, en las nueve tablas con datos de clínica: `clinics`, `specialties`, `services`, `practitioners`, `practitioner_services`, `patients`, `schedules`, `blocks` y `appointments`.
+- **La misma regla para leer y escribir.** `USING` limita lo que se ve, se actualiza o se borra, y `WITH CHECK` impide insertar o mover filas hacia otra clínica.
+- **La clínica sale de `app.clinic_id`**, que `TxManager` fija con `set_config` local en cada transacción. La función `current_clinic_id()` la lee.
+- **Falla hacia el lado seguro.** Sin `app.clinic_id`, `current_clinic_id()` es `NULL` y no se ve ninguna fila.
+- **Quién queda sujeto.** Los roles de la aplicación (`agenda_app` y `agenda_readonly`) son `NOBYPASSRLS` y no son dueños de las tablas. `agenda_owner` sí es dueño y no pasa por las políticas, pero solo se usa para migrar. No se activó `FORCE ROW LEVEL SECURITY`, para que una migración de datos futura no deje de actualizar filas sin avisar. Las semillas corren como superusuario.
+
+**Qué hubo que cambiar para que funcione.** Con RLS, una lectura que no fija la clínica no ve nada. Hasta entonces varias lecturas usaban el pool directo: cinco consultas del catálogo y unas veinte lecturas de horarios, disponibilidad y citas. Ahora todas corren dentro de `TxManager`, en una transacción de solo lectura con la clínica del token. Cuesta dos viajes más a la base por lectura, y a cambio la regla «toda consulta corre en `TxManager`» se cumple sin excepciones en las tablas con RLS.
+
+**Las dos excepciones, y por qué**
+
+| Excepción | Por qué | Cómo se acota |
+|---|---|---|
+| `audit_outbox` y `audit_outbox_delivered` no tienen RLS | Son la cola que el relay lee de **todas** las clínicas para entregar a Auditoría. El relay no actúa en nombre de una clínica, y con RLS no vería ningún evento | Son append-only (I6) y solo llevan identificadores, nunca datos de contacto |
+| `practitioner_clinic_of_user(uuid)` es `SECURITY DEFINER` | Tenancy avisa a Agenda cuando un usuario deja de ser profesional. Esa llamada interna trae el id del usuario pero no su clínica, así que no hay con qué fijar `app.clinic_id` | Devuelve solo la clínica. Con ella, la escritura corre bajo las políticas como cualquier otra. Solo la puede ejecutar `agenda_app`, y tiene el `search_path` fijo |
+
+**Cómo se demuestra.** `rls-test` (sección 3.8 de `pruebas.md`) usa el rol real de la aplicación y consultas **sin ningún filtro de clínica**. Además, las pruebas de integración de los cuatro servicios siguen pasando con RLS activo, lo que demuestra que la aplicación funciona bajo las políticas.
+
+**Pendiente: las mediciones.** Falta comparar B (filtro `clinic_id`) contra C (RLS) sobre las mismas consultas, con su plan de ejecución y su tiempo, y concluir si RLS debe pasar a ser obligatoria. Hasta entonces, la decisión de la sección 2.3 se mantiene, y **no se afirma ningún resultado de rendimiento** que no se haya medido.
 
 ---
 

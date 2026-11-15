@@ -207,6 +207,26 @@ Una prueba necesita una cita cuya hora de inicio ya pasó (RF12). Como no se pue
 
 Última línea esperada: `All appointment integration checks passed.`
 
+### 3.8 Row-Level Security de Agenda (I5)
+
+~~~bash
+docker compose --profile test run --rm rls-test
+~~~
+
+Se conecta a `agenda_db` con los roles reales (`agenda_app`, `agenda_readonly` y `agenda_owner`) y **no usa ningún filtro de clínica en las lecturas**: lo que se prueba es que el motor aísla aunque la consulta lo olvide. Verifica que:
+
+- los roles de la aplicación son `NOBYPASSRLS`, y las nueve tablas con datos de clínica tienen RLS y son de `agenda_owner`;
+- `audit_outbox` queda fuera de RLS, como excepción documentada;
+- sin `app.clinic_id`, el rol de la aplicación no ve ninguna fila de ninguna tabla, y `current_clinic_id()` es `NULL`;
+- con una clínica fijada, cada clínica ve **exactamente** sus filas en las nueve tablas, y entre todas suman el total real de cada tabla. Se comprueba además que la prueba no sea vacía (hay pacientes y citas);
+- desde una clínica no se puede insertar un paciente en otra, ni sin clínica en la sesión, ni mover un paciente propio hacia otra. Modificar pacientes, borrar horarios o cancelar citas de otra clínica no toca ninguna fila, y no queda ningún cambio;
+- `agenda_readonly` queda igual de aislado;
+- `practitioner_clinic_of_user` devuelve la clínica sin necesitar una en la sesión, no abre la tabla `practitioners`, y `agenda_readonly` no puede ejecutarla.
+
+Última línea esperada: `All Row-Level Security checks passed.`
+
+Las pruebas de integración de las secciones 3.3, 3.5, 3.6 y 3.7 corren ya con RLS activo, y demuestran que la aplicación funciona bajo las políticas.
+
 ## 4. Trazabilidad
 
 Las pruebas de integración se identifican por el nombre que imprimen; las unitarias, por el nombre de la función. `citascheck`, `agendacheck`, `leakcheck` y `p1check` son los programas de `cmd/`.
@@ -243,7 +263,7 @@ Las pruebas de integración se identifican por el nombre que imprimen; las unita
 | I2 | `citascheck`: `I2 el mismo paciente no puede tener dos citas solapadas con otro profesional`; `I2 carrera: el mismo paciente con dos profesionales a la vez…` |
 | I3 | `citascheck`: `I3 no se reserva fuera del horario de atención`; `RF6 I3 un bloqueo retira la disponibilidad y rechaza reservas`. Unitarias: `TestWithinSchedule`, `TestBookRejectsUnavailableSlots` |
 | I4 | `citascheck`: `I4 la duración la fija el servicio, no la petición` |
-| I5 | `citascheck`: `I5 otra clínica no ve ni modifica citas, horarios, bloqueos ni disponibilidad`, `I5 un clinic_id falsificado…`. `agendacheck`: las seis pruebas `I5` de pacientes y bitácora, y las de historial, agenda y conteo. `p1check`: aislamiento en Tenancy y en el catálogo. `leakcheck`: las nueve pruebas `I5` de los cuatro servicios, entre ellas la matriz de las tres clínicas |
+| I5 | `citascheck`: `I5 otra clínica no ve ni modifica citas, horarios, bloqueos ni disponibilidad`, `I5 un clinic_id falsificado…`. `agendacheck`: las seis pruebas `I5` de pacientes y bitácora, y las de historial, agenda y conteo. `p1check`: aislamiento en Tenancy y en el catálogo. `leakcheck`: las nueve pruebas `I5` de los cuatro servicios, entre ellas la matriz de las tres clínicas. `rls-test` (sección 3.8): el aislamiento lo hace el motor, aunque la consulta no filtre |
 | I6 | Sección 3.2 (`audit-invariants-test`) y sección 3.1 (`db-security-test`) |
 | I7 | `citascheck`: `RF10 I7 reprogramar libera el espacio anterior y ocupa el nuevo`; `RF11 I7 el espacio cancelado vuelve a estar disponible de inmediato` |
 | I8 | `citascheck`: `I8 la disponibilidad no ofrece un espacio recién reservado, aunque estuviera en caché`; `I8 un cambio en los servicios del profesional también invalida la caché`. Unitarias: `TestInvalidateOrphansPreviousEntries`, `TestStaleReadCannotOverwriteAnInvalidation`, `TestFailedInvalidationDisablesTheCacheForThatAgenda` |

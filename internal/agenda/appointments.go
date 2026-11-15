@@ -47,21 +47,32 @@ type SchedulingTxRunner interface {
 type Scheduling struct {
 	store SchedulingStore
 	tx    SchedulingTxRunner
-	// db es el pool, para las lecturas que no necesitan transacción.
-	db    database.DBTX
 	cache AvailabilityCache
 	// now se inyecta para poder probar las reglas que dependen de la hora.
 	now func() time.Time
 }
 
 // NewScheduling devuelve los casos de uso de la agenda.
-func NewScheduling(store SchedulingStore, tx SchedulingTxRunner, db database.DBTX, cache AvailabilityCache) *Scheduling {
-	return &Scheduling{store: store, tx: tx, db: db, cache: cache, now: time.Now}
+func NewScheduling(store SchedulingStore, tx SchedulingTxRunner, cache AvailabilityCache) *Scheduling {
+	return &Scheduling{store: store, tx: tx, cache: cache, now: time.Now}
 }
 
 // txOptions son las opciones de toda transacción de escritura de la agenda.
 func txOptions(actor auth.Actor) database.TxOptions {
 	return database.TxOptions{IsoLevel: pgx.ReadCommitted, ClinicID: actor.ClinicID}
+}
+
+// readTx corre fn en una transacción de solo lectura con la clínica fijada
+// Toda lectura de la agenda pasa por aquí, para que app.clinic_id esté puesto
+// Con RLS activo, una lectura sin esta transacción no vería ninguna fila
+// fn se puede repetir: TxManager reintenta ante un deadlock o un fallo de
+// serialización, y una lectura no tiene efectos
+func (s *Scheduling) readTx(ctx context.Context, clinicID string, fn func(db database.DBTX) error) error {
+	opts := database.TxOptions{IsoLevel: pgx.ReadCommitted, ReadOnly: true, ClinicID: clinicID}
+
+	return s.tx.Run(ctx, opts, func(_ context.Context, tx *database.Tx) error {
+		return fn(tx)
+	})
 }
 
 // invalidate sube la versión de la agenda del profesional dos veces: ahora,
@@ -95,11 +106,21 @@ func (s *Scheduling) Schedule(ctx context.Context, actor auth.Actor, practitione
 		return nil, apperr.Invalid("invalid practitioner id")
 	}
 
-	if _, err := s.practitioner(ctx, s.db, actor.ClinicID, practitionerID, false); err != nil {
-		return nil, err
-	}
+	var schedule []ScheduleBlock
 
-	return s.store.Schedule(ctx, s.db, actor.ClinicID, practitionerID)
+	err := s.readTx(ctx, actor.ClinicID, func(db database.DBTX) error {
+		if _, err := s.practitioner(ctx, db, actor.ClinicID, practitionerID, false); err != nil {
+			return err
+		}
+
+		var err error
+
+		schedule, err = s.store.Schedule(ctx, db, actor.ClinicID, practitionerID)
+
+		return err
+	})
+
+	return schedule, err
 }
 
 // ReplaceSchedule define el horario semanal completo de un profesional (RF5).
@@ -327,37 +348,45 @@ func (s *Scheduling) Blocks(ctx context.Context, actor auth.Actor, practitionerI
 		return nil, apperr.Invalid("invalid practitioner id")
 	}
 
-	if _, err := s.practitioner(ctx, s.db, actor.ClinicID, practitionerID, false); err != nil {
-		return nil, err
-	}
+	var blocks []AgendaBlock
 
-	loc, err := s.location(ctx, s.db, actor.ClinicID)
-	if err != nil {
-		return nil, err
-	}
-
-	start := startOfDay(s.now(), loc)
-	if from != "" {
-		if start, err = parseDate(from, "from", loc); err != nil {
-			return nil, err
+	err := s.readTx(ctx, actor.ClinicID, func(db database.DBTX) error {
+		if _, err := s.practitioner(ctx, db, actor.ClinicID, practitionerID, false); err != nil {
+			return err
 		}
-	}
 
-	end := start.Add(conflictHorizon)
-	if to != "" {
-		day, err := parseDate(to, "to", loc)
+		loc, err := s.location(ctx, db, actor.ClinicID)
 		if err != nil {
-			return nil, err
+			return err
 		}
 
-		end = day.AddDate(0, 0, 1)
-	}
+		start := startOfDay(s.now(), loc)
+		if from != "" {
+			if start, err = parseDate(from, "from", loc); err != nil {
+				return err
+			}
+		}
 
-	if !start.Before(end) {
-		return nil, apperr.Invalid("from must not be after to")
-	}
+		end := start.Add(conflictHorizon)
+		if to != "" {
+			day, err := parseDate(to, "to", loc)
+			if err != nil {
+				return err
+			}
 
-	return s.store.BlocksInRange(ctx, s.db, actor.ClinicID, practitionerID, start, end)
+			end = day.AddDate(0, 0, 1)
+		}
+
+		if !start.Before(end) {
+			return apperr.Invalid("from must not be after to")
+		}
+
+		blocks, err = s.store.BlocksInRange(ctx, db, actor.ClinicID, practitionerID, start, end)
+
+		return err
+	})
+
+	return blocks, err
 }
 
 // BlockConflicts devuelve las citas vigentes que caen dentro de un bloqueo
@@ -369,12 +398,20 @@ func (s *Scheduling) BlockConflicts(ctx context.Context, actor auth.Actor, pract
 		return nil, apperr.Invalid("invalid id")
 	}
 
-	block, err := s.store.Block(ctx, s.db, actor.ClinicID, practitionerID, blockID)
-	if err != nil {
-		return nil, notFound(err, "block not found")
-	}
+	var conflicts []Appointment
 
-	return s.store.BookedInRange(ctx, s.db, actor.ClinicID, practitionerID, block.StartsAt, block.EndsAt)
+	err := s.readTx(ctx, actor.ClinicID, func(db database.DBTX) error {
+		block, err := s.store.Block(ctx, db, actor.ClinicID, practitionerID, blockID)
+		if err != nil {
+			return notFound(err, "block not found")
+		}
+
+		conflicts, err = s.store.BookedInRange(ctx, db, actor.ClinicID, practitionerID, block.StartsAt, block.EndsAt)
+
+		return err
+	})
+
+	return conflicts, err
 }
 
 // DeleteBlock elimina un bloqueo y devuelve su disponibilidad.
@@ -439,40 +476,56 @@ func (s *Scheduling) Availability(
 		return s.upcoming(entry.slots), true, nil
 	}
 
-	loc, err := s.location(ctx, s.db, actor.ClinicID)
+	var (
+		slots []Slot
+		// bookable es falso cuando no hay nada que calcular ni que guardar
+		bookable = true
+	)
+
+	err := s.readTx(ctx, actor.ClinicID, func(db database.DBTX) error {
+		loc, err := s.location(ctx, db, actor.ClinicID)
+		if err != nil {
+			return err
+		}
+
+		day, err := parseDate(date, "date", loc)
+		if err != nil {
+			return err
+		}
+
+		practitioner, err := s.practitioner(ctx, db, actor.ClinicID, practitionerID, false)
+		if err != nil {
+			return err
+		}
+
+		service, err := s.store.Service(ctx, db, actor.ClinicID, serviceID)
+		if err != nil {
+			return notFound(err, "service not found")
+		}
+
+		offers, err := s.store.PractitionerOffers(ctx, db, actor.ClinicID, practitionerID, serviceID)
+		if err != nil {
+			return err
+		}
+
+		// Un profesional inactivo, un servicio retirado o un servicio que el
+		// profesional no atiende no tienen espacios: reservar ahí se rechazaría.
+		if !practitioner.Active || !service.Active || !offers {
+			bookable = false
+
+			return nil
+		}
+
+		slots, err = s.computeSlots(ctx, db, actor.ClinicID, practitionerID, service, day, loc)
+
+		return err
+	})
 	if err != nil {
 		return nil, false, err
 	}
 
-	day, err := parseDate(date, "date", loc)
-	if err != nil {
-		return nil, false, err
-	}
-
-	practitioner, err := s.practitioner(ctx, s.db, actor.ClinicID, practitionerID, false)
-	if err != nil {
-		return nil, false, err
-	}
-
-	service, err := s.store.Service(ctx, s.db, actor.ClinicID, serviceID)
-	if err != nil {
-		return nil, false, notFound(err, "service not found")
-	}
-
-	offers, err := s.store.PractitionerOffers(ctx, s.db, actor.ClinicID, practitionerID, serviceID)
-	if err != nil {
-		return nil, false, err
-	}
-
-	// Un profesional inactivo, un servicio retirado o un servicio que el
-	// profesional no atiende no tienen espacios: reservar ahí se rechazaría.
-	if !practitioner.Active || !service.Active || !offers {
+	if !bookable {
 		return []Slot{}, false, nil
-	}
-
-	slots, err := s.computeSlots(ctx, actor.ClinicID, practitionerID, service, day, loc)
-	if err != nil {
-		return nil, false, err
 	}
 
 	s.remember(ctx, entry, slots)
@@ -493,69 +546,81 @@ func (s *Scheduling) AvailabilityByService(
 		return nil, apperr.Invalid("service_id must be a valid id")
 	}
 
-	loc, err := s.location(ctx, s.db, actor.ClinicID)
-	if err != nil {
-		return nil, err
-	}
-
-	start, err := parseDate(from, "from", loc)
-	if err != nil {
-		return nil, err
-	}
-
-	end, err := parseDate(to, "to", loc)
-	if err != nil {
-		return nil, err
-	}
-
-	if end.Before(start) {
-		return nil, apperr.Invalid("from must not be after to")
-	}
-
-	if end.After(start.AddDate(0, 0, maxAvailabilityDays-1)) {
-		return nil, apperr.Invalid("the date range must not exceed 31 days")
-	}
-
-	service, err := s.store.Service(ctx, s.db, actor.ClinicID, serviceID)
-	if err != nil {
-		return nil, notFound(err, "service not found")
-	}
-
 	result := []PractitionerSlots{}
 
-	if !service.Active {
-		return result, nil
-	}
+	// Toda la consulta corre en una transacción de solo lectura con la clínica
+	// fijada. Entre una lectura y otra se consulta la caché, que no usa la base.
+	err := s.readTx(ctx, actor.ClinicID, func(db database.DBTX) error {
+		// La función se puede repetir, así que cada intento parte de cero
+		result = []PractitionerSlots{}
 
-	practitioners, err := s.store.PractitionersForService(ctx, s.db, actor.ClinicID, serviceID)
-	if err != nil {
-		return nil, err
-	}
+		loc, err := s.location(ctx, db, actor.ClinicID)
+		if err != nil {
+			return err
+		}
 
-	for _, practitioner := range practitioners {
-		for day := start; !day.After(end); day = day.AddDate(0, 0, 1) {
-			entry := s.lookup(ctx, actor.ClinicID, practitioner.ID, service.ID, day.Format(dateLayout))
+		start, err := parseDate(from, "from", loc)
+		if err != nil {
+			return err
+		}
 
-			slots := entry.slots
-			if !entry.hit {
-				if slots, err = s.computeSlots(ctx, actor.ClinicID, practitioner.ID, service, day, loc); err != nil {
-					return nil, err
+		end, err := parseDate(to, "to", loc)
+		if err != nil {
+			return err
+		}
+
+		if end.Before(start) {
+			return apperr.Invalid("from must not be after to")
+		}
+
+		if end.After(start.AddDate(0, 0, maxAvailabilityDays-1)) {
+			return apperr.Invalid("the date range must not exceed 31 days")
+		}
+
+		service, err := s.store.Service(ctx, db, actor.ClinicID, serviceID)
+		if err != nil {
+			return notFound(err, "service not found")
+		}
+
+		if !service.Active {
+			return nil
+		}
+
+		practitioners, err := s.store.PractitionersForService(ctx, db, actor.ClinicID, serviceID)
+		if err != nil {
+			return err
+		}
+
+		for _, practitioner := range practitioners {
+			for day := start; !day.After(end); day = day.AddDate(0, 0, 1) {
+				entry := s.lookup(ctx, actor.ClinicID, practitioner.ID, service.ID, day.Format(dateLayout))
+
+				slots := entry.slots
+				if !entry.hit {
+					if slots, err = s.computeSlots(ctx, db, actor.ClinicID, practitioner.ID, service, day, loc); err != nil {
+						return err
+					}
+
+					s.remember(ctx, entry, slots)
 				}
 
-				s.remember(ctx, entry, slots)
-			}
+				if slots = s.upcoming(slots); len(slots) == 0 {
+					continue
+				}
 
-			if slots = s.upcoming(slots); len(slots) == 0 {
-				continue
+				result = append(result, PractitionerSlots{
+					PractitionerID: practitioner.ID,
+					DisplayName:    practitioner.DisplayName,
+					Date:           day.Format(dateLayout),
+					Slots:          slots,
+				})
 			}
-
-			result = append(result, PractitionerSlots{
-				PractitionerID: practitioner.ID,
-				DisplayName:    practitioner.DisplayName,
-				Date:           day.Format(dateLayout),
-				Slots:          slots,
-			})
 		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return result, nil
@@ -611,7 +676,15 @@ func (s *Scheduling) InvalidateAgendas(ctx context.Context, clinicID string, pra
 // InvalidateService sube la versión de las agendas de todos los profesionales
 // que atienden un servicio. Se usa cuando el servicio se retira del catálogo.
 func (s *Scheduling) InvalidateService(ctx context.Context, clinicID, serviceID string) {
-	practitioners, err := s.store.PractitionersForService(ctx, s.db, clinicID, serviceID)
+	var practitioners []practitionerRef
+
+	err := s.readTx(ctx, clinicID, func(db database.DBTX) error {
+		var err error
+
+		practitioners, err = s.store.PractitionersForService(ctx, db, clinicID, serviceID)
+
+		return err
+	})
 	if err != nil {
 		return
 	}
@@ -624,12 +697,13 @@ func (s *Scheduling) InvalidateService(ctx context.Context, clinicID, serviceID 
 // computeSlots calcula los espacios de un día contra la base.
 func (s *Scheduling) computeSlots(
 	ctx context.Context,
+	db database.DBTX,
 	clinicID, practitionerID string,
 	service serviceRef,
 	day time.Time,
 	loc *time.Location,
 ) ([]Slot, error) {
-	schedule, err := s.store.Schedule(ctx, s.db, clinicID, practitionerID)
+	schedule, err := s.store.Schedule(ctx, db, clinicID, practitionerID)
 	if err != nil {
 		return nil, err
 	}
@@ -641,12 +715,12 @@ func (s *Scheduling) computeSlots(
 
 	from, to := working[0].start, working[len(working)-1].end
 
-	blocks, err := s.store.BlocksInRange(ctx, s.db, clinicID, practitionerID, from, to)
+	blocks, err := s.store.BlocksInRange(ctx, db, clinicID, practitionerID, from, to)
 	if err != nil {
 		return nil, err
 	}
 
-	booked, err := s.store.BookedInRange(ctx, s.db, clinicID, practitionerID, from, to)
+	booked, err := s.store.BookedInRange(ctx, db, clinicID, practitionerID, from, to)
 	if err != nil {
 		return nil, err
 	}
@@ -824,7 +898,15 @@ func (s *Scheduling) GetAppointment(ctx context.Context, actor auth.Actor, appoi
 		return Appointment{}, apperr.Invalid("invalid appointment id")
 	}
 
-	appointment, err := s.store.Appointment(ctx, s.db, actor.ClinicID, appointmentID, false)
+	var appointment Appointment
+
+	err := s.readTx(ctx, actor.ClinicID, func(db database.DBTX) error {
+		var err error
+
+		appointment, err = s.store.Appointment(ctx, db, actor.ClinicID, appointmentID, false)
+
+		return err
+	})
 
 	return appointment, notFound(err, "appointment not found")
 }
@@ -1046,7 +1128,15 @@ func (s *Scheduling) ClinicalNoteContext(ctx context.Context, actor auth.Actor, 
 		return noteContext{}, apperr.Invalid("invalid appointment id")
 	}
 
-	result, err := s.store.NoteContext(ctx, s.db, actor.ClinicID, appointmentID)
+	var result noteContext
+
+	err := s.readTx(ctx, actor.ClinicID, func(db database.DBTX) error {
+		var err error
+
+		result, err = s.store.NoteContext(ctx, db, actor.ClinicID, appointmentID)
+
+		return err
+	})
 
 	return result, notFound(err, "appointment not found")
 }

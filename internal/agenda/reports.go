@@ -21,16 +21,8 @@ const (
 	maxHistoryLimit     = 200
 )
 
-// Estados de una cita. Coinciden con el CHECK de la migración 0007.
-const (
-	StatusBooked      = "booked"
-	StatusAttended    = "attended"
-	StatusNoShow      = "no_show"
-	StatusCancelled   = "cancelled"
-	StatusRescheduled = "rescheduled"
-)
-
-// validStatuses permite validar el filtro de estado de la agenda.
+// validStatuses permite validar el filtro de estado de la agenda
+// Las constantes de los estados están en scheduling.go
 var validStatuses = map[string]struct{}{
 	StatusBooked:      {},
 	StatusAttended:    {},
