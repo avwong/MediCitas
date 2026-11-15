@@ -159,8 +159,27 @@ Las de la agenda y el conteo verifican:
 
 Última línea esperada: `All Agenda integration checks passed.`
 
+### 3.6 Fuga entre clínicas en los cuatro servicios (I5)
+
+~~~bash
+docker compose --profile test run --build --rm leak-integration-test
+~~~
+
+Son 12 comprobaciones (`cmd/leakcheck`) sobre Tenancy, Agenda, Expediente y Auditoría, con tokens reales de las tres clínicas de la semilla. Cada una intenta alcanzar datos de otra clínica por rutas, ids ajenos, cuerpos y filtros manipulados. Se apoyan en `seed/tenancy.sql`, `seed/agenda.sql` y `seed/expediente.sql`. Verifican:
+
+- **un control:** que cada clínica lea sus propios recursos en los cuatro servicios (200). Sin él, un 404 en las demás pruebas podría significar que la ruta no existe;
+- que las rutas de los cuatro servicios respondan 401 sin token y con un token falso;
+- que las rutas `/internal/...` no se alcancen por el proxy (404), ni con el token de un administrador;
+- **Tenancy:** que cada administrador liste solo a los usuarios de su clínica, que un alta con otra clínica en el cuerpo, la consulta y la cabecera quede en la del token, y que solo la plataforma liste las clínicas;
+- **Agenda:** que los listados de servicios, profesionales y pacientes no traigan datos de otra clínica, y que un profesional de una clínica no pueda atender un servicio ni ligarse a un usuario de otra;
+- **la matriz de las tres clínicas:** desde cada clínica, 12 intentos de leer o modificar los recursos de las otras dos (servicios, profesionales, pacientes, historial, agenda, usuarios y notas), cada uno repetido con un `clinic_id` y una cabecera `X-Clinic-Id` manipulados, y al final que los recursos atacados no hayan cambiado;
+- **Expediente:** que solo el dueño lea su nota, y no otro profesional de la misma clínica, ni los de otras clínicas, ni administración, recepción o la plataforma;
+- **Auditoría:** que cada administrador vea solo eventos de su clínica (esperando a que el relay entregue las lecturas de las notas), también con filtros de otra clínica, y que solo el administrador la consulte.
+
+Se pueden repetir sin preparar datos. La prueba de alta crea un usuario con un nombre único por ejecución y lo da de baja al terminar, así que quedan usuarios inactivos con el prefijo `fuga-`. Última línea esperada: `All tenant isolation leak checks passed.`
+
 ## 4. Trazabilidad
 
-Pendiente. El informe de pruebas debe incluir una tabla que relacione cada requisito funcional y cada invariante con la prueba que lo cubre. Las pruebas de pacientes ya llevan esa información en sus nombres y comentarios.
+Pendiente. El informe de pruebas debe incluir una tabla que relacione cada requisito funcional y cada invariante con la prueba que lo cubre. Las pruebas de pacientes, historial, agenda y fuga ya llevan esa información en sus nombres y comentarios.
 
-Quedan por escribir, junto con los módulos que las necesitan, las pruebas de carrera, de caché y de fuga entre clínicas en los cuatro servicios.
+Quedan por escribir, junto con los módulos que las necesitan, las pruebas de carrera y de caché.

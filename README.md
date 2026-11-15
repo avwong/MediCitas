@@ -139,7 +139,7 @@ Reglas de los pacientes:
 - El listado devuelve un resumen **sin datos de contacto** (`id`, `identification`, `first_name`, `last_name`, `birth_date`, `active`), por lo que no se audita.
 - Cada creación, actualización y lectura de un paciente con sus datos de contacto escribe `patient_contact.write` o `patient_contact.read` en `audit_outbox`, dentro de la misma transacción. Si el evento no se puede guardar, la operación no se completa. El evento lleva solo identificadores, nunca los valores de contacto.
 
-La semilla incluye 13 pacientes de ejemplo: 6 en Clínica Demo, 3 en Clínica Norte y 4 en Clínica Sur.
+La semilla incluye 13 pacientes de ejemplo: 6 en Clínica Demo, 3 en Clínica Norte y 4 en Clínica Sur. Expediente tiene su propia semilla, con 5 notas clínicas de citas ya atendidas (2 en Demo, 2 en Norte y 1 en Sur). Hacen falta porque la creación de notas por la API todavía depende de la ruta de Agenda que verifica la cita, y sin notas de ejemplo no habría nada que proteger en las pruebas de aislamiento.
 
 Historial del paciente (RF16), agenda del día (RF20) y conteo de citas por estado (RF21):
 
@@ -280,9 +280,10 @@ docker compose --profile test run --rm audit-invariants-test
 docker compose --profile test run --build --rm p1-api-integration-test
 docker compose --profile test run --rm audit-relay-test
 docker compose --profile test run --build --rm agenda-api-integration-test
+docker compose --profile test run --build --rm leak-integration-test
 ~~~
 
-En orden, estos comandos comprueban: las pruebas unitarias, el análisis estático, el Compose, los privilegios de PostgreSQL, la inmutabilidad de la auditoría, la autenticación y el aislamiento entre clínicas, la entrega de los relays y los pacientes con su auditoría, la agenda del día y el conteo por estado. Lo que demuestra cada una está en [`docs/pruebas.md`](docs/pruebas.md).
+En orden, estos comandos comprueban: las pruebas unitarias, el análisis estático, el Compose, los privilegios de PostgreSQL, la inmutabilidad de la auditoría, la autenticación y el aislamiento entre clínicas, la entrega de los relays y los pacientes con su auditoría, la agenda del día y el conteo por estado, y las pruebas de fuga entre clínicas en los cuatro servicios. Lo que demuestra cada una está en [`docs/pruebas.md`](docs/pruebas.md).
 
 ## Estructura
 
