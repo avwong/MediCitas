@@ -32,6 +32,7 @@ type CatalogStore interface {
 	ListPractitioners(ctx context.Context, clinicID string) ([]Practitioner, error)
 	GetPractitioner(ctx context.Context, clinicID, practitionerID string) (Practitioner, error)
 	ReplacePractitionerServices(ctx context.Context, clinicID, practitionerID string, serviceIDs []string) (Practitioner, error)
+	SetPractitionerActiveByUser(ctx context.Context, userID string, active bool) error
 }
 
 // StaffDirectory busca usuarios en Tenancy en nombre del actor y reenvía su
@@ -208,6 +209,22 @@ func (c *Catalog) ReplacePractitionerServices(
 	}
 
 	return c.store.ReplacePractitionerServices(ctx, actor.ClinicID, practitionerID, serviceIDs)
+}
+
+// SetPractitionerActive activa o desactiva al profesional que corresponde a un
+// usuario de Tenancy. Tenancy lo llama cuando el usuario deja de ser
+// profesional (cambio de rol o baja) o vuelve a serlo, para que Agenda no siga
+// tratando como profesional activo a quien ya no lo es.
+//
+// Es idempotente, y un usuario que nunca se registró como profesional no es
+// un error: Tenancy no sabe cuáles usuarios tienen profesional en Agenda.
+func (c *Catalog) SetPractitionerActive(ctx context.Context, userID string, active bool) error {
+	userID, ok := ids.Normalize(userID)
+	if !ok {
+		return apperr.Invalid("invalid user id")
+	}
+
+	return c.store.SetPractitionerActiveByUser(ctx, userID, active)
 }
 
 func validText(value string, maxLength int) bool {

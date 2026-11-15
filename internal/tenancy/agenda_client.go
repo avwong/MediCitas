@@ -54,3 +54,21 @@ func (a *AgendaClient) DeprovisionClinic(ctx context.Context, clinicID string) e
 
 	return err
 }
+
+// SetPractitionerActive activa o desactiva en Agenda al profesional de ese
+// usuario. La llamada es idempotente.
+func (a *AgendaClient) SetPractitionerActive(ctx context.Context, userID string, active bool) error {
+	token, err := a.tokens.Token(ctx)
+	if err != nil {
+		return err
+	}
+
+	return a.client.Do(
+		ctx,
+		http.MethodPut,
+		"/internal/practitioners/by-user/"+userID+"/active",
+		token,
+		map[string]bool{"active": active},
+		nil,
+	)
+}

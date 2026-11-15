@@ -47,11 +47,14 @@ type IdentityProvider interface {
 	Disable(ctx context.Context, subject string) error
 }
 
-// AgendaProvisioner crea la proyección de una clínica en el servicio de
-// Agenda.
+// AgendaProvisioner mantiene en Agenda lo que depende de Tenancy: la
+// proyección de cada clínica y si el profesional de un usuario sigue activo.
 type AgendaProvisioner interface {
 	ProvisionClinic(ctx context.Context, clinicID, timezone string) error
 	DeprovisionClinic(ctx context.Context, clinicID string) error
+	// SetPractitionerActive no falla si el usuario no tiene profesional en
+	// Agenda.
+	SetPractitionerActive(ctx context.Context, userID string, active bool) error
 }
 
 // Service implementa RF1 y RF2.
@@ -220,8 +223,10 @@ func (s *Service) Me(ctx context.Context, actor auth.Actor) (User, error) {
 }
 
 // UpdateUserRole cambia el rol de un usuario de la clínica del actor (RF2).
-// Keycloak se actualiza primero porque es la fuente de verdad, y después la
-// copia local. Si falla a medias, reintentar lleva al mismo estado final.
+// Keycloak se actualiza primero porque es la fuente de verdad; después Agenda,
+// si el usuario deja de ser profesional o vuelve a serlo, y al final la copia
+// local. Si falla a medias, reintentar lleva al mismo estado final: la copia
+// local todavía tiene el rol anterior, así que se repiten los mismos pasos.
 func (s *Service) UpdateUserRole(ctx context.Context, actor auth.Actor, userID, roleName string) (User, error) {
 	role, ok := auth.ParseClinicRole(roleName)
 	if !ok {
@@ -237,6 +242,15 @@ func (s *Service) UpdateUserRole(ctx context.Context, actor auth.Actor, userID, 
 		return User{}, err
 	}
 
+	wasPractitioner := user.Role == auth.RolePractitioner
+	isPractitioner := role == auth.RolePractitioner
+
+	if wasPractitioner != isPractitioner {
+		if err := s.agenda.SetPractitionerActive(ctx, user.ID, isPractitioner); err != nil {
+			return User{}, fmt.Errorf("update practitioner in agenda: %w", err)
+		}
+	}
+
 	if err := s.store.SetUserRole(ctx, actor.ClinicID, user.ID, role); err != nil {
 		return User{}, err
 	}
@@ -249,7 +263,8 @@ func (s *Service) UpdateUserRole(ctx context.Context, actor auth.Actor, userID, 
 // DeactivateUser es la baja lógica de RF2. Primero se deshabilita al usuario
 // en Keycloak, lo que bloquea los inicios de sesión nuevos y cierra sus
 // sesiones; los tokens ya emitidos vencen dentro de la vida del token de
-// acceso.
+// acceso. Si era profesional, también se desactiva en Agenda. La copia local
+// se marca al final, para que un fallo a medias se pueda reintentar.
 func (s *Service) DeactivateUser(ctx context.Context, actor auth.Actor, userID string) error {
 	user, err := s.modifiableUser(ctx, actor, userID)
 	if err != nil {
@@ -258,6 +273,12 @@ func (s *Service) DeactivateUser(ctx context.Context, actor auth.Actor, userID s
 
 	if err := s.idp.Disable(ctx, user.Subject); err != nil {
 		return err
+	}
+
+	if user.Role == auth.RolePractitioner {
+		if err := s.agenda.SetPractitionerActive(ctx, user.ID, false); err != nil {
+			return fmt.Errorf("deactivate practitioner in agenda: %w", err)
+		}
 	}
 
 	return s.store.DeactivateUser(ctx, actor.ClinicID, user.ID)

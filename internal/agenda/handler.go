@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/avwong/MediCitas/internal/platform/apperr"
 	"github.com/avwong/MediCitas/internal/platform/auth"
 	"github.com/avwong/MediCitas/internal/platform/httpx"
 	"github.com/gin-gonic/gin"
@@ -47,10 +48,17 @@ func (h *Handler) RegisterInternalRoutes(internal *gin.RouterGroup, tenancyClien
 
 	internal.PUT("/clinics/:id", onlyTenancy, h.ProvisionClinic)
 	internal.DELETE("/clinics/:id", onlyTenancy, h.DeprovisionClinic)
+	internal.PUT("/practitioners/by-user/:user_id/active", onlyTenancy, h.SetPractitionerActive)
 }
 
 type provisionClinicRequest struct {
 	Timezone string `json:"timezone"`
+}
+
+// setPractitionerActiveRequest usa un puntero para exigir el campo: sin él, un
+// cuerpo vacío se leería como "desactivar".
+type setPractitionerActiveRequest struct {
+	Active *bool `json:"active"`
 }
 
 type createServiceRequest struct {
@@ -88,6 +96,27 @@ func (h *Handler) ProvisionClinic(c *gin.Context) {
 // DeprovisionClinic atiende DELETE /internal/clinics/:id.
 func (h *Handler) DeprovisionClinic(c *gin.Context) {
 	if err := h.catalog.DeprovisionClinic(c.Request.Context(), c.Param("id")); err != nil {
+		httpx.WriteError(c, h.logger, err)
+		return
+	}
+
+	c.Status(http.StatusNoContent)
+}
+
+// SetPractitionerActive atiende PUT
+// /internal/practitioners/by-user/:user_id/active.
+func (h *Handler) SetPractitionerActive(c *gin.Context) {
+	var request setPractitionerActiveRequest
+	if !httpx.BindJSON(c, &request) {
+		return
+	}
+
+	if request.Active == nil {
+		httpx.WriteError(c, h.logger, apperr.Invalid("active is required"))
+		return
+	}
+
+	if err := h.catalog.SetPractitionerActive(c.Request.Context(), c.Param("user_id"), *request.Active); err != nil {
 		httpx.WriteError(c, h.logger, err)
 		return
 	}

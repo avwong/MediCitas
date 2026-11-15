@@ -94,10 +94,10 @@ Todas las rutas reciben y devuelven JSON. Los errores tienen la forma `{"error":
 | `POST /api/v1/users` | `clinic_admin` | `username`, `email`, `first_name`, `last_name`, `password`, `role` | usuario | 201, 400, 409, 503 |
 | `GET /api/v1/users` | `clinic_admin` | — | `{items: [usuario]}` | 200 |
 | `GET /api/v1/users/{id}` | `clinic_admin` | — | usuario | 200, 404 |
-| `PATCH /api/v1/users/{id}/role` | `clinic_admin` | `role` | usuario | 200, 400, 404, 409 |
-| `DELETE /api/v1/users/{id}` | `clinic_admin` | — | — (baja lógica) | 204, 404, 409 |
+| `PATCH /api/v1/users/{id}/role` | `clinic_admin` | `role` | usuario | 200, 400, 404, 409, 503 |
+| `DELETE /api/v1/users/{id}` | `clinic_admin` | — | — (baja lógica) | 204, 404, 409, 503 |
 
-`role` acepta `clinic_admin`, `reception` o `practitioner`. El alta de una clínica usa una saga pequeña para mantener coordinados Tenancy, Keycloak y la proyección de Agenda.
+`role` acepta `clinic_admin`, `reception` o `practitioner`. Cuando un usuario deja de ser `practitioner`, por cambio de rol o por baja, Tenancy desactiva a su profesional en Agenda, y lo reactiva si vuelve a tener ese rol. Si Agenda no responde, la operación devuelve 503 y se puede repetir. El alta de una clínica usa una saga pequeña para mantener coordinados Tenancy, Keycloak y la proyección de Agenda.
 
 ### Agenda
 
@@ -182,8 +182,9 @@ Agenda actualmente expone:
 
 - `PUT /internal/clinics/{id}`
 - `DELETE /internal/clinics/{id}`
+- `PUT /internal/practitioners/by-user/{user_id}/active`, con el cuerpo `{"active": true|false}`
 
-Tenancy utiliza esas rutas con su cuenta de servicio para aprovisionar clínicas.
+Tenancy utiliza esas rutas con su cuenta de servicio: las dos primeras para aprovisionar clínicas y la tercera para que el profesional de Agenda refleje el estado de su usuario. Es idempotente y responde 204 aunque el usuario no tenga profesional registrado.
 
 Expediente queda preparado para consumir, cuando el módulo de citas exista:
 
