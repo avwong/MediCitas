@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"time"
+
+	"github.com/avwong/MediCitas/internal/platform/apperr"
 )
 
 // QueueStore es la persistencia que necesita Relay.
@@ -26,6 +28,10 @@ type Relay struct {
 	logger   *slog.Logger
 	interval time.Duration
 	batch    int
+	// rejected son los eventos que Auditoría rechazó como inválidos. Solo vive
+	// en memoria: el outbox es inmutable y los eventos siguen en él como no
+	// entregados, así que un reinicio del servicio los vuelve a intentar.
+	rejected map[string]struct{}
 }
 
 // NewRelay crea un relay de auditoría.
@@ -54,6 +60,7 @@ func NewRelay(
 		logger:   logger,
 		interval: interval,
 		batch:    batch,
+		rejected: make(map[string]struct{}),
 	}
 }
 
@@ -62,8 +69,15 @@ func NewRelay(
 // La entrega es "al menos una vez" a propósito. Si Auditoría aceptó un evento
 // y este proceso se cae antes de MarkDelivered, el evento se envía de nuevo y
 // Auditoría lo descarta como repetido por su event_id.
+//
+// Un evento que Auditoría rechaza como inválido (400) no va a ser aceptado por
+// más que se reintente. Se registra como error una sola vez y se deja de
+// enviar, para que no ocupe para siempre un lugar al frente de la cola.
 func (r *Relay) RunOnce(ctx context.Context) error {
-	events, err := r.store.Pending(ctx, r.batch)
+	// Los rechazados siguen saliendo en Pending porque nunca se marcan como
+	// entregados. Se pide ese tanto de más para que no le quiten lugar en el
+	// lote a los eventos que sí se pueden entregar.
+	events, err := r.store.Pending(ctx, r.batch+len(r.rejected))
 	if err != nil {
 		return fmt.Errorf("read audit outbox: %w", err)
 	}
@@ -71,7 +85,22 @@ func (r *Relay) RunOnce(ctx context.Context) error {
 	var result error
 
 	for _, event := range events {
+		if _, skip := r.rejected[event.EventID]; skip {
+			continue
+		}
+
 		if err := r.sink.Deliver(ctx, event); err != nil {
+			if errors.Is(err, apperr.ErrInvalidInput) {
+				r.rejected[event.EventID] = struct{}{}
+				r.logger.ErrorContext(
+					ctx,
+					"audit rejected an outbox event; it will not be retried until restart",
+					"event_id", event.EventID,
+					"error", err,
+				)
+				continue
+			}
+
 			result = errors.Join(
 				result,
 				fmt.Errorf("deliver %s: %w", event.EventID, err),
