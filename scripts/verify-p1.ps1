@@ -50,6 +50,10 @@ try {
         docker compose --profile test run --build --rm citas-api-integration-test
     }
 
+    Invoke-NativeStep "Tenant isolation leaks" {
+        docker compose --profile test run --build --rm leak-integration-test
+    }
+
     Invoke-NativeStep "Database privilege boundaries" {
         docker compose --profile test run --rm db-security-test
     }

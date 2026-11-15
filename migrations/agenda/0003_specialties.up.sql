@@ -71,9 +71,12 @@ ALTER TABLE practitioners
         ON DELETE RESTRICT,
     DROP COLUMN specialty;
 
--- Índices por especialidad. Sirven para buscar los servicios o profesionales
--- de una especialidad y para comprobar que un servicio requiere la
--- especialidad del profesional (RF4).
+-- Índices por especialidad
+-- Son los índices del lado que referencia en las llaves foráneas hacia specialties
+-- PostgreSQL indexa el lado referenciado, pero no este
+-- Sin ellos, borrar o cambiar una especialidad recorre todos los servicios y profesionales
+-- Ninguna consulta de la aplicación los necesita hoy
+-- La medición está en docs/design.md, sección 1.5
 CREATE INDEX idx_services_specialty
     ON services (clinic_id, specialty_id);
 

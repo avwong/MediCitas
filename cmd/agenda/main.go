@@ -91,6 +91,12 @@ func run(ctx context.Context) error {
 	// caché: el estado de un profesional o los servicios que atiende.
 	catalog.ObserveAgendas(scheduling)
 
+	// Historial del paciente (RF16), agenda del día (RF20) y conteo de citas
+	// por estado (RF21). Solo leen, así que no escriben en el outbox de
+	// auditoría.
+	reports := agenda.NewReports(agenda.NewPostgresReportStore(), app.Tx)
+	reportHandler := agenda.NewReportHandler(reports, app.Logger)
+
 	internal := app.Router.Group(
 		"/internal",
 		app.Verifier.Authenticate(),
@@ -99,8 +105,10 @@ func run(ctx context.Context) error {
 	handler.RegisterRoutes(app.API)
 	patientHandler.RegisterRoutes(app.API)
 	schedulingHandler.RegisterRoutes(app.API)
+	reportHandler.RegisterRoutes(app.API)
 	handler.RegisterInternalRoutes(internal, tenancyClientID)
 	schedulingHandler.RegisterInternalRoutes(internal)
+
 
 	tokenSource := svcclient.NewClientCredentials(
 		tokenURL,

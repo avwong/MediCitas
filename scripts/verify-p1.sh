@@ -35,6 +35,9 @@ run "Agenda API integration" \
 run "Appointments API integration and booking race" \
   docker compose --profile test run --build --rm citas-api-integration-test
 
+run "Tenant isolation leaks" \
+  docker compose --profile test run --build --rm leak-integration-test
+
 run "Database privilege boundaries" \
   docker compose --profile test run --rm db-security-test
 

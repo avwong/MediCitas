@@ -304,7 +304,8 @@ services:
       - "-c"
       - >-
         psql -v ON_ERROR_STOP=1 -d tenancy_db -f /seed/tenancy.sql &&
-        psql -v ON_ERROR_STOP=1 -d agenda_db -f /seed/agenda.sql
+        psql -v ON_ERROR_STOP=1 -d agenda_db -f /seed/agenda.sql &&
+        psql -v ON_ERROR_STOP=1 -d expediente_db -f /seed/expediente.sql
     depends_on:
       migrate-tenancy:
         condition: service_completed_successfully
@@ -473,6 +474,27 @@ services:
       proxy:
         condition: service_started
       keycloak:
+        condition: service_healthy
+
+  # Fuga entre clínicas (I5) en los cuatro servicios.
+  leak-integration-test:
+    profiles: ["test"]
+    build:
+      context: .
+      args:
+        SERVICE: leakcheck
+    image: medicitas-leak-integration-test:dev
+    environment:
+      API_URL: http://proxy:8080
+      KEYCLOAK_URL: http://keycloak:8080
+    depends_on:
+      proxy:
+        condition: service_started
+      keycloak:
+        condition: service_healthy
+      audit:
+        condition: service_healthy
+      expediente:
         condition: service_healthy
 
 volumes:

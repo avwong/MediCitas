@@ -102,8 +102,7 @@ Todas las rutas reciben y devuelven JSON. Los errores tienen la forma `{"error":
 `role` acepta `clinic_admin`, `reception` o `practitioner`. Cuando un usuario deja de ser `practitioner`, por cambio de rol o por baja, Tenancy desactiva a su profesional en Agenda, y lo reactiva si vuelve a tener ese rol. Si Agenda no responde, la operación devuelve 503 y se puede repetir. El alta de una clínica usa una saga pequeña para mantener coordinados Tenancy, Keycloak y la proyección de Agenda.
 
 ### Agenda
-
-Están implementados RF3 a RF14. Catálogo y profesionales (RF3 y RF4):
+Están implementados RF3, RF4, RF14, RF16, RF20 y RF21. Catálogo y profesionales (RF3 y RF4):
 
 | Método y ruta | Rol | Entrada | Salida | Códigos |
 |---|---|---|---|---|
@@ -139,7 +138,33 @@ Reglas de los pacientes:
 - El listado devuelve un resumen **sin datos de contacto** (`id`, `identification`, `first_name`, `last_name`, `birth_date`, `active`), por lo que no se audita.
 - Cada creación, actualización y lectura de un paciente con sus datos de contacto escribe `patient_contact.write` o `patient_contact.read` en `audit_outbox`, dentro de la misma transacción. Si el evento no se puede guardar, la operación no se completa. El evento lleva solo identificadores, nunca los valores de contacto.
 
-La semilla incluye 13 pacientes de ejemplo: 6 en Clínica Demo, 3 en Clínica Norte y 4 en Clínica Sur.
+La semilla incluye 13 pacientes de ejemplo: 6 en Clínica Demo, 3 en Clínica Norte y 4 en Clínica Sur. Expediente tiene su propia semilla, con 5 notas clínicas de citas ya atendidas (2 en Demo, 2 en Norte y 1 en Sur). Hacen falta porque la creación de notas por la API todavía depende de la ruta de Agenda que verifica la cita, y sin notas de ejemplo no habría nada que proteger en las pruebas de aislamiento.
+
+Historial del paciente (RF16), agenda del día (RF20) y conteo de citas por estado (RF21):
+
+| Método y ruta | Rol | Entrada | Salida | Códigos |
+|---|---|---|---|---|
+| `GET /api/v1/patients/{id}/history` | `clinic_admin`, `reception`, `practitioner` | `limit` (1–200, por defecto 50), opcional | `{patient, timezone, items: [cita]}` | 200, 400, 404 |
+| `GET /api/v1/agenda` | `clinic_admin`, `reception`, `practitioner` | `date` (`AAAA-MM-DD`, obligatorio); opcionales `practitioner_id` y `status` | `{date, timezone, practitioner_id, items: [cita]}` | 200, 400, 403, 404 |
+| `GET /api/v1/reports/appointments-by-status` | `clinic_admin` | `from` y `to` (`AAAA-MM-DD`, obligatorios) | `{from, to, timezone, counts, total}` | 200, 400 |
+
+Reglas del historial:
+
+- Devuelve las citas del paciente de la más reciente a la más antigua, con el estado de cada una. Las canceladas traen `cancellation_reason`, y la que reprograma a otra trae `rescheduled_from_id`.
+- Lo leen los tres roles de la clínica, según la matriz del enunciado. El profesional no queda limitado a sus pacientes, porque ya puede leer todos (RF14).
+- El paciente va **sin datos de contacto** (`id`, `identification`, `first_name`, `last_name`), por lo que consultar el historial no se audita.
+- Las horas salen en la zona horaria de la clínica. Un paciente de otra clínica, o que no existe, responde 404. Un paciente sin citas devuelve `items` vacío.
+
+Reglas de la agenda y el conteo:
+
+- Sin `practitioner_id`, la agenda es la de toda la clínica, que es la vista de recepción. Con él, es la de ese profesional. Un `practitioner_id` que no existe en la clínica, o que es de otra, responde 404.
+- El profesional solo ve su propia agenda: sin el parámetro recibe la suya, y si pide la de otro profesional responde 403.
+- `status` filtra por `booked`, `attended`, `no_show`, `cancelled` o `rescheduled`. Sin él salen todas las citas del día, ordenadas por hora de inicio.
+- Cada cita trae el paciente (`id`, `identification`, `first_name`, `last_name`), el profesional y el servicio. El paciente va **sin datos de contacto**, por lo que ver la agenda no se audita.
+- El día de la agenda y el rango del conteo se interpretan en la zona horaria de la clínica, y las horas salen en esa zona. Una cita a las 23:30 de Costa Rica pertenece a ese día aunque en UTC ya sea el siguiente.
+- El conteo incluye los dos extremos (`from` y `to` pueden ser el mismo día), cuenta por la hora de inicio de la cita y acepta un rango de hasta 366 días. Los cinco estados salen siempre, con cero cuando no hay citas.
+- El conteo es de administración: no está en la matriz del enunciado, y se limitó a quien gestiona la clínica. La agenda tampoco está en la matriz y se concedió a los tres roles de clínica.
+- La clínica nunca viaja en la petición: se toma del `clinic_id` firmado, y un `clinic_id` enviado en los parámetros se ignora.
 
 Horarios y bloqueos (RF5 y RF6):
 
@@ -192,7 +217,7 @@ Reglas de las citas:
 
 Cómo se resuelven dos reservas simultáneas por el mismo espacio, el nivel de aislamiento, los candados y la política de la caché están explicados en [`docs/concurrencia-y-cache.md`](docs/concurrencia-y-cache.md).
 
-RF16, RF20 y RF21 pertenecen a Agenda y se incorporarán sobre esta misma frontera de servicio.
+
 
 ### Expediente
 
@@ -302,10 +327,9 @@ docker compose --profile test run --rm audit-invariants-test
 docker compose --profile test run --build --rm p1-api-integration-test
 docker compose --profile test run --rm audit-relay-test
 docker compose --profile test run --build --rm agenda-api-integration-test
+docker compose --profile test run --build --rm leak-integration-test
 docker compose --profile test run --build --rm citas-api-integration-test
 ~~~
-
-En orden, estos comandos comprueban: las pruebas unitarias, el análisis estático, el Compose, los privilegios de PostgreSQL, la inmutabilidad de la auditoría, la autenticación y el aislamiento entre clínicas, la entrega de los relays, los pacientes con su auditoría, y los horarios, la disponibilidad y las citas, con la prueba de carrera y la de la caché. Lo que demuestra cada una está en [`docs/pruebas.md`](docs/pruebas.md).
 
 ## Estructura
 
@@ -313,6 +337,7 @@ En orden, estos comandos comprueban: las pruebas unitarias, el análisis estáti
 cmd/<servicio>/          binario de cada servicio
 internal/platform/       auth, DB/TxManager, HTTP, outbox, clientes internos
 internal/tenancy/        RF1 y RF2
+internal/agenda/         catálogo, pacientes, agenda del día, reportes y futuros módulos de Agenda
 internal/agenda/         catálogo, pacientes, horarios, disponibilidad y citas
 internal/expediente/     RF15
 internal/audit/          RF19 y almacén RF18

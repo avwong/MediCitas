@@ -7,7 +7,8 @@ Este documento reúne el diseño de MediCitas: el modelo de datos, la estrategia
 | Sección | Estado |
 |---|---|
 | 1. Modelo de datos: diagramas ER, 3FN y desnormalizaciones | Completo para las tablas existentes |
-| 1.5 Diccionario de datos | Pendiente |
+| 1.5 Índices por especialidad: medición | Completo |
+| 1.6 Diccionario de datos | Pendiente |
 | 2. Multi-tenancy: comparación y decisión | Completo; las mediciones de RLS están pendientes |
 | 3. Arquitectura de servicios | Completo; el detalle de concurrencia y caché está en `concurrencia-y-cache.md` |
 | 4. Seguridad de la base de datos y auditoría | Completo |
@@ -372,7 +373,26 @@ El enunciado exige documentar cada desnormalización con su motivo. Estas son to
 
 > **Nota.** Los motivos de las filas 3 a 7 se leyeron de las migraciones y de los comentarios del código de Tenancy, Expediente y Auditoría, que no son de quien escribe este documento. Conviene confirmarlos con quien los diseñó antes de defenderlos.
 
-### 1.5 Pendiente
+### 1.5 Índices por especialidad: medición
+
+La migración `0003` crea dos índices sobre `(clinic_id, specialty_id)`: `idx_services_specialty` en `services` e `idx_practitioners_specialty` en `practitioners`. Su comentario dice que sirven para buscar por especialidad y para validar que un servicio requiere la especialidad del profesional (RF4). Se midió si eso es cierto.
+
+**Cómo se midió.** En `agenda_db`, dentro de una transacción que se deshace al terminar, con `EXPLAIN (ANALYZE)` y `ANALYZE` previo. El conjunto de datos de la primera consulta es de una clínica con 5.000 servicios y 1.500 profesionales; el del borrado, 100 clínicas con 53.191 servicios y 20.570 profesionales. Cada plan se comparó con y sin los índices (`DROP INDEX` dentro de la misma transacción). Es una sola ejecución por caso, así que sirve para el orden de magnitud y no para una cifra exacta.
+
+| Consulta | Con los índices | Sin los índices | Qué muestra |
+|---|---|---|---|
+| Listar el catálogo de una clínica (`ListServices`), 5.000 servicios | 10,0 ms, recorrido secuencial y `Hash Join` | 10,2 ms, el mismo plan | No usa el índice: lee toda la clínica, y para eso el recorrido secuencial es lo mejor |
+| Asociar servicios a un profesional (`insertPractitionerServices`) | 0,190 ms | 0,093 ms | No ayuda: `id = ANY(...)` es mucho más selectivo, y el plan sin el índice usa `services_clinic_id_unique` y es más rápido |
+| Verificación de `services_specialty_fk` al borrar una especialidad | 0,29 ms | 1,48 ms | El índice la acelera unas 5 veces |
+| Verificación de `practitioners_specialty_fk` al borrar una especialidad | 0,22 ms | 0,72 ms | El índice la acelera unas 3 veces |
+
+**Decisión: se conservan, pero por otra razón de la que decía el comentario.** Son los índices del lado que referencia en las llaves foráneas compuestas hacia `specialties`. PostgreSQL indexa el lado referenciado (la clave de `specialties`), no el que referencia. Sin estos índices, borrar o cambiar una especialidad obliga a recorrer todos los servicios y profesionales de la tabla para comprobar `ON DELETE RESTRICT`, y esa comprobación crece con el tamaño de las tablas. Cuestan 16 kB cada uno con los datos de ejemplo, y mantenerlos en cada alta es despreciable.
+
+**Lo que no justifican.** Ninguna consulta de la aplicación se apoya hoy en ellos. La afirmación de la migración sobre buscar por especialidad y validar RF4 no se confirma con la medición, y ninguna ruta borra especialidades todavía. Si el grupo prefiere un esquema sin índices que ninguna ruta usa, se pueden quitar con una migración nueva sin perder funcionalidad. Se conservan porque el borrado es la única operación del esquema que los necesita para ser barata.
+
+> **Advertencia sobre los contadores.** `pg_stat_user_indexes` muestra cientos de usos de ambos índices después de correr las pruebas. Esa cifra no prueba que sean útiles: con tablas de decenas de filas, el optimizador elige el plan casi sin diferencia de costo, y cualquier plan es igual de rápido.
+
+### 1.6 Pendiente
 
 - **Datos de ejemplo de horarios, bloqueos y citas.** El esquema (migraciones `0005` a `0007` de Agenda) y las rutas ya existen; la semilla todavía no los llena.
 - **Diccionario de datos** de las cuatro bases, que irá en esta sección.
@@ -473,8 +493,14 @@ El enunciado pide demostrar I5 con pruebas automáticas que incluyan **intentos 
 | La clínica sale del actor | Verificar que todas las operaciones de pacientes usan la clínica del actor, y que ninguna entrada tiene un campo de clínica | `internal/agenda/patients_test.go` (unitarias) |
 | Aislamiento de servicios y usuarios | Leer servicios y usuarios de otra clínica, con la clínica falsificada en un encabezado | `cmd/p1check` |
 | Fronteras entre bases | Conectarse con las credenciales de un servicio a la base de otro | `db-security-test` |
+| Matriz de las tres clínicas | Desde cada clínica, leer y modificar servicios, profesionales, pacientes, historiales, agendas, usuarios y notas clínicas de las otras dos, con `clinic_id` y `X-Clinic-Id` manipulados. Después comprueba que nada cambió | `cmd/leakcheck` (contra la pila real) |
+| Listados | Que los listados de usuarios, servicios, profesionales, pacientes y bitácora de cada clínica no traigan nada de otra, con parámetros manipulados | `cmd/leakcheck` |
+| Alta con la clínica falsificada | Crear un usuario pidiendo otra clínica en el cuerpo, la consulta y la cabecera: queda en la del token | `cmd/leakcheck` |
+| Notas clínicas | Leer una nota ajena: de otra clínica, de otro profesional de la misma clínica o con un rol sin permiso | `cmd/leakcheck` |
+| Bitácora | Que cada administrador solo vea eventos de su clínica, y que filtrar por un paciente o usuario de otra no devuelva nada | `cmd/leakcheck` |
+| Rutas internas | Alcanzar `/internal/...` por el proxy, ni siquiera con un token de administrador | `cmd/leakcheck` |
 
-Las pruebas de fuga de los cuatro servicios están pendientes de ampliarse.
+`cmd/leakcheck` cubre los cuatro servicios: Tenancy, Agenda, Expediente y Auditoría. Empieza con una prueba de control que lee los recursos propios de cada clínica, para que un 404 de las demás pruebas signifique aislamiento y no una ruta inexistente.
 
 ### 2.7 Pendiente: RLS y mediciones
 
