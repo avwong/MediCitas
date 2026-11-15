@@ -1,5 +1,5 @@
-// Command agenda ejecuta el servicio de Agenda: catálogo, profesionales y
-// pacientes de cada clínica.
+// Command agenda ejecuta el servicio de Agenda: catálogo, profesionales,
+// pacientes, horarios, disponibilidad y citas de cada clínica.
 package main
 
 import (
@@ -44,6 +44,7 @@ func run(ctx context.Context) error {
 	tokenURL := env.Required("OIDC_TOKEN_URL")
 	outboxClientID := env.Required("OUTBOX_CLIENT_ID")
 	outboxClientSecret := env.Required("OUTBOX_CLIENT_SECRET")
+	redisAddr := env.Optional("REDIS_ADDR", "")
 
 	app, err := bootstrap.New(ctx, "agenda", env)
 	if err != nil {
@@ -67,21 +68,47 @@ func run(ctx context.Context) error {
 	)
 	patientHandler := agenda.NewPatientHandler(patients, app.Logger)
 
-	// Agenda del día (RF20) y conteo de citas por estado (RF21). Solo leen, así
-	// que no escriben en el outbox de auditoría.
+	// Horarios, disponibilidad y citas (RF5 a RF13). La disponibilidad se
+	// sirve desde Redis; sin REDIS_ADDR se calcula siempre contra la base,
+	// que es más lento pero igual de correcto.
+	var cache agenda.AvailabilityCache
+	if redisAddr == "" {
+		app.Logger.Warn("REDIS_ADDR is not set; availability is computed from the database on every request")
+		cache = agenda.NewNoCache()
+	} else {
+		cache = agenda.NewRedisAvailabilityCache(redisAddr, app.Logger)
+	}
+
+	scheduling := agenda.NewScheduling(
+		agenda.NewPostgresSchedulingStore(),
+		app.Tx,
+		app.DB,
+		cache,
+	)
+	schedulingHandler := agenda.NewSchedulingHandler(scheduling, app.Logger)
+
+	// El catálogo avisa cuando cambia algo que afecta a la disponibilidad en
+	// caché: el estado de un profesional o los servicios que atiende.
+	catalog.ObserveAgendas(scheduling)
+
+	// Historial del paciente (RF16), agenda del día (RF20) y conteo de citas
+	// por estado (RF21). Solo leen, así que no escriben en el outbox de
+	// auditoría.
 	reports := agenda.NewReports(agenda.NewPostgresReportStore(), app.Tx)
 	reportHandler := agenda.NewReportHandler(reports, app.Logger)
 
+	internal := app.Router.Group(
+		"/internal",
+		app.Verifier.Authenticate(),
+	)
+
 	handler.RegisterRoutes(app.API)
 	patientHandler.RegisterRoutes(app.API)
+	schedulingHandler.RegisterRoutes(app.API)
 	reportHandler.RegisterRoutes(app.API)
-	handler.RegisterInternalRoutes(
-		app.Router.Group(
-			"/internal",
-			app.Verifier.Authenticate(),
-		),
-		tenancyClientID,
-	)
+	handler.RegisterInternalRoutes(internal, tenancyClientID)
+	schedulingHandler.RegisterInternalRoutes(internal)
+
 
 	tokenSource := svcclient.NewClientCredentials(
 		tokenURL,

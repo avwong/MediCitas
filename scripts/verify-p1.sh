@@ -32,6 +32,9 @@ run "P1 API integration" \
 run "Agenda API integration" \
   docker compose --profile test run --build --rm agenda-api-integration-test
 
+run "Appointments API integration and booking race" \
+  docker compose --profile test run --build --rm citas-api-integration-test
+
 run "Tenant isolation leaks" \
   docker compose --profile test run --build --rm leak-integration-test
 

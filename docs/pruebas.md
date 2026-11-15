@@ -55,6 +55,14 @@ Validan el comportamiento de los paquetes, las reglas de autorización, la lógi
 - que el conteo devuelva siempre los cinco estados, con cero cuando no hay citas, y sume el total;
 - que todas las consultas usen la clínica del actor, en transacciones de solo lectura;
 - los permisos de cada rol sobre el historial, la agenda y el conteo.
+**Horarios, disponibilidad, citas y caché (RF5 a RF13), en `internal/agenda/scheduling_test.go`, `appointments_test.go` y `availability_cache_test.go`.** Cada prueba indica en un comentario `Cubre` lo que sostiene. Verifican, entre otras cosas:
+
+- el cálculo de los espacios a partir del horario, los bloqueos, las citas y la duración del servicio, en la zona horaria de la clínica;
+- la máquina de estados de la cita: desde `booked` hacia los cuatro estados finales, y ninguna salida de un estado final;
+- que una reserva fuera del horario, dentro de un bloqueo o con un profesional que no atiende el servicio se rechace sin insertar nada;
+- que reprogramar hacia otro profesional bloquee las dos filas en orden de id y cierre la cita anterior antes de crear la nueva;
+- que una invalidación deje huérfanas las entradas anteriores de la caché, y que una lectura vieja no pueda pisar una invalidación;
+- que, si Redis no responde al invalidar, esa agenda deje de servirse desde la caché hasta que la invalidación se logre.
 
 **Notas clínicas (RF15).** Verifican, entre otras cosas:
 
@@ -183,3 +191,64 @@ Se pueden repetir sin preparar datos. La prueba de alta crea un usuario con un n
 Pendiente. El informe de pruebas debe incluir una tabla que relacione cada requisito funcional y cada invariante con la prueba que lo cubre. Las pruebas de pacientes, historial, agenda y fuga ya llevan esa información en sus nombres y comentarios.
 
 Quedan por escribir, junto con los módulos que las necesitan, las pruebas de carrera y de caché.
+### 3.6 Agenda: horarios, disponibilidad, citas, carrera y caché
+
+~~~bash
+docker compose --profile test run --build --rm citas-api-integration-test
+~~~
+
+Son 33 comprobaciones sobre la API (`cmd/citascheck`). Cada una lleva en su nombre el requisito o invariante que sostiene. No dependen de la semilla de horarios ni de citas: fijan el horario de dos profesionales de la clínica Demo, trabajan sobre fechas lejanas elegidas al azar y, al terminar, cancelan las citas que quedaron vigentes, borran sus bloqueos y restauran los horarios que había. Se pueden repetir sin preparar datos. Verifican:
+
+- **el ciclo de la cita** (criterio de aceptación 2): reservar, reprogramar, cancelar y registrar el desenlace, con sus códigos, y el rechazo de toda transición desde un estado final;
+- **los tres desenlaces de la reserva**: concedida (201), espacio no disponible (409, con el motivo) y solicitud inválida (400);
+- **la carrera** (criterio 6): en cada una de 20 rondas queda un solo espacio libre, 12 clientes lo piden a la vez y debe haber exactamente un 201 y once 409. Todos los clientes esperan la misma señal antes de enviar, así que la coincidencia no depende de la suerte. Una segunda carrera reserva al mismo paciente con dos profesionales a la vez;
+- **la caché** (criterio 5): consultar, reservar uno de los espacios devueltos y volver a consultar. La segunda respuesta no trae el espacio y no sale de una entrada anterior al cambio. Lo mismo al cancelar, al reprogramar y al cambiar los servicios del profesional;
+- **los horarios y los bloqueos**: varios bloques por día, validaciones, la regla de que el profesional solo administra los propios, y que un bloqueo o un cambio de horario no cancelen citas sino que las listen como conflictos;
+- **el aislamiento** (I5): otra clínica recibe 404 en las trece rutas de citas, horarios, bloqueos y disponibilidad, también con un `clinic_id` falsificado en el cuerpo o en la consulta;
+- **RF15 de punta a punta**: Expediente acepta la nota de una cita atendida, rechaza la de una cita sin atender y no revela la cita de otro profesional.
+
+Una prueba necesita una cita cuya hora de inicio ya pasó (RF12). Como no se puede reservar en el pasado, abre por un momento el horario a las 24 horas, reserva una cita que empieza en tres segundos y espera a que empiece.
+
+Última línea esperada: `All appointment integration checks passed.`
+
+## 4. Trazabilidad
+
+Las pruebas de integración se identifican por el nombre que imprimen; las unitarias, por el nombre de la función. `citascheck`, `agendacheck` y `p1check` son los programas de `cmd/`.
+
+### 4.1 Requisitos funcionales
+
+| Requisito | Pruebas |
+|---|---|
+| RF1, RF2 | Unitarias de `internal/tenancy` (saga de alta, compensaciones, roles, baja). `p1check`: permisos por rol sobre clínicas y usuarios |
+| RF3, RF4 | Unitarias de `internal/agenda/catalog_test.go`. `p1check`: permisos y aislamiento del catálogo |
+| RF5 | `citascheck`: `RF5 el horario admite varios bloques por día…`, `RF5 los horarios inválidos se rechazan`, `RF5 permisos…`, `RF5 cambiar el horario lista las citas que quedan fuera`. Unitaria: `TestNormalizeSchedule` |
+| RF6 | `citascheck`: `RF6 I3 un bloqueo retira la disponibilidad…`, `RF6 un bloqueo no cancela las citas reservadas…`, `RF6 permisos y entradas inválidas de los bloqueos` |
+| RF7 | `citascheck`: `RF7 la disponibilidad sale del horario y de la duración del servicio`, `RF7 las consultas inválidas…`. Unitarias: `TestAvailableSlots…`, `TestScheduleIsInTheClinicTimeZone` |
+| RF8 | `citascheck`: `RF8 disponibilidad por servicio en un rango de fechas` |
+| RF9 | `citascheck`: `RF9 reservar concede la cita`, `RF9 I1 un espacio tomado o solapado responde 409`, `RF9 las solicitudes inválidas…`, `RF9 permisos…`. Unitarias: `TestBookGrantsAValidSlot`, `TestBookRejectsInvalidInput` |
+| RF10 | `citascheck`: `RF10 I7 reprogramar libera el espacio anterior…`, `RF10 si el espacio nuevo no está libre…`, `RF10 reprogramar con un profesional que no atiende el servicio…`. Unitarias: `TestRescheduleLocksPractitionersInIDOrder`, `TestRescheduleRejections` |
+| RF11 | `citascheck`: `RF11 cancelar exige motivo y registra quién canceló`, `RF11 I7 el espacio cancelado vuelve a estar disponible…` |
+| RF12 | `citascheck`: `RF12 el desenlace no se registra antes de la hora de inicio`, `RF12 RF13 desenlace de una cita ya iniciada, una sola vez` |
+| RF13 | `citascheck`: `RF13 un estado final no admite ninguna transición`. Unitaria: `TestCanTransition` |
+| RF14 | `agendacheck` (sección 3.5) y `internal/agenda/patients_test.go` |
+| RF15 | `citascheck`: `RF15 una nota clínica sobre una cita atendida se acepta de punta a punta`, `RF15 la ruta interna de contexto de cita no se expone por el proxy`. Unitarias de `internal/expediente` |
+| RF16 | Pendiente (no implementado) |
+| RF17 | `p1check`: 401 sin token, 403 con un rol que no corresponde y 200 con el adecuado. Unitarias de `internal/platform/auth`, entre ellas `TestPermissionMatrix` |
+| RF18 | `agendacheck`: `RF18 cada acceso al contacto queda en la bitácora, y solo esos`. Pruebas de invariantes de auditoría y de entrega de relays (secciones 3.2 y 3.4) |
+| RF19 | `agendacheck`: consulta de la bitácora por paciente. Unitarias de `internal/audit` |
+| RF20, RF21 | Pendiente (no implementado) |
+
+### 4.2 Invariantes
+
+| Invariante | Pruebas |
+|---|---|
+| I1 | `citascheck`: `I1 carrera: muchos clientes por el último espacio, una sola reserva concedida`; `RF9 I1 un espacio tomado o solapado responde 409` |
+| I2 | `citascheck`: `I2 el mismo paciente no puede tener dos citas solapadas con otro profesional`; `I2 carrera: el mismo paciente con dos profesionales a la vez…` |
+| I3 | `citascheck`: `I3 no se reserva fuera del horario de atención`; `RF6 I3 un bloqueo retira la disponibilidad y rechaza reservas`. Unitarias: `TestWithinSchedule`, `TestBookRejectsUnavailableSlots` |
+| I4 | `citascheck`: `I4 la duración la fija el servicio, no la petición` |
+| I5 | `citascheck`: `I5 otra clínica no ve ni modifica citas, horarios, bloqueos ni disponibilidad`, `I5 un clinic_id falsificado…`. `agendacheck`: las seis pruebas `I5` de pacientes y bitácora. `p1check`: aislamiento en Tenancy y en el catálogo |
+| I6 | Sección 3.2 (`audit-invariants-test`) y sección 3.1 (`db-security-test`) |
+| I7 | `citascheck`: `RF10 I7 reprogramar libera el espacio anterior y ocupa el nuevo`; `RF11 I7 el espacio cancelado vuelve a estar disponible de inmediato` |
+| I8 | `citascheck`: `I8 la disponibilidad no ofrece un espacio recién reservado, aunque estuviera en caché`; `I8 un cambio en los servicios del profesional también invalida la caché`. Unitarias: `TestInvalidateOrphansPreviousEntries`, `TestStaleReadCannotOverwriteAnInvalidation`, `TestFailedInvalidationDisablesTheCacheForThatAgenda` |
+
+Quedan por escribir las pruebas de RF16, RF20 y RF21, y ampliar las de fuga entre clínicas de Tenancy, Expediente y Auditoría.
