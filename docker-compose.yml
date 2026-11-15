@@ -1,14 +1,14 @@
 name: medicitas
 
-# Settings shared by the four MediCitas services.
+# Configuración que comparten los cuatro servicios de MediCitas.
 x-service-environment: &service-environment
   HTTP_ADDR: ":8080"
   LOG_LEVEL: ${LOG_LEVEL:-info}
   DB_HOST: postgres
   DB_PORT: "5432"
-  # Keycloak always issues tokens with this issuer (KC_HOSTNAME below), so
-  # the value matches whether the token was requested from the host or from
-  # inside the network.
+  # Keycloak emite siempre los tokens con este emisor (KC_HOSTNAME, más abajo),
+  # así que el valor coincide tanto si el token se pidió desde el host como
+  # desde dentro de la red.
   OIDC_ISSUER_URL: ${KEYCLOAK_PUBLIC_URL}/realms/medicitas
   OIDC_JWKS_URL: http://keycloak:8080/realms/medicitas/protocol/openid-connect/certs
   OIDC_TOKEN_URL: http://keycloak:8080/realms/medicitas/protocol/openid-connect/token
@@ -28,7 +28,7 @@ x-service-dependencies: &service-dependencies
 
 services:
   # --------------------------------------------------------------------------
-  # Entry point
+  # Punto de entrada
   # --------------------------------------------------------------------------
   proxy:
     image: nginx:1.27-alpine
@@ -48,7 +48,7 @@ services:
         condition: service_healthy
 
   # --------------------------------------------------------------------------
-  # MediCitas services
+  # Servicios de MediCitas
   # --------------------------------------------------------------------------
   tenancy:
     build:
@@ -133,7 +133,7 @@ services:
       <<: *service-dependencies
 
   # --------------------------------------------------------------------------
-  # Infrastructure
+  # Infraestructura
   # --------------------------------------------------------------------------
   postgres:
     image: postgres:17-alpine
@@ -150,7 +150,60 @@ services:
       timeout: 5s
       retries: 20
 
-  # Creates one database and three least-privilege roles per service. Idempotent.
+  # Reservado para la caché de disponibilidad (RF7, RF8). Agenda todavía no lo
+  # usa.
+  redis:
+    image: redis:7-alpine
+    container_name: medicitas-redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: medicitas-keycloak
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      # Fija el emisor de todos los tokens, sin importar cómo se llegue a Keycloak.
+      KC_HOSTNAME: ${KEYCLOAK_PUBLIC_URL}
+      KC_HEALTH_ENABLED: "true"
+      # El archivo del realm los toma con marcadores como ${TENANCY_CLIENT_SECRET}.
+      TENANCY_CLIENT_SECRET: ${TENANCY_CLIENT_SECRET}
+      AGENDA_CLIENT_SECRET: ${AGENDA_CLIENT_SECRET}
+      EXPEDIENTE_CLIENT_SECRET: ${EXPEDIENTE_CLIENT_SECRET}
+    ports:
+      - "127.0.0.1:${KEYCLOAK_PORT}:8080"
+    volumes:
+      - ./keycloak:/opt/keycloak/data/import:ro
+    healthcheck:
+      # La imagen no trae curl ni wget; con /dev/tcp de bash se llega al puerto
+      # de administración, donde Keycloak informa si está listo.
+      test:
+        - "CMD"
+        - "bash"
+        - "-c"
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/9000 &&
+          printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
+          grep -q '"UP"' <&3
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  # --------------------------------------------------------------------------
+  # Preparación de las bases de datos
+  #
+  # Trabajos que corren una vez y terminan. Los servicios esperan a db-seed, el
+  # último de la cadena: db-init -> migrate-* -> db-seed.
+  # --------------------------------------------------------------------------
+
+  # Crea una base de datos y tres roles de menor privilegio por servicio. Es
+  # idempotente.
   db-init:
     image: postgres:17-alpine
     container_name: medicitas-db-init
@@ -178,42 +231,7 @@ services:
       postgres:
         condition: service_healthy
 
-  # --------------------------------------------------------------------------
-  # PostgreSQL least-privilege integration test
-  # --------------------------------------------------------------------------
-  db-security-test:
-    profiles: ["test"]
-    image: postgres:17-alpine
-    container_name: medicitas-db-security-test
-    environment:
-      TENANCY_DB_OWNER_PASSWORD: ${TENANCY_DB_OWNER_PASSWORD}
-      TENANCY_DB_APP_PASSWORD: ${TENANCY_DB_APP_PASSWORD}
-      TENANCY_DB_READONLY_PASSWORD: ${TENANCY_DB_READONLY_PASSWORD}
-
-      AGENDA_DB_OWNER_PASSWORD: ${AGENDA_DB_OWNER_PASSWORD}
-      AGENDA_DB_APP_PASSWORD: ${AGENDA_DB_APP_PASSWORD}
-      AGENDA_DB_READONLY_PASSWORD: ${AGENDA_DB_READONLY_PASSWORD}
-
-      EXPEDIENTE_DB_OWNER_PASSWORD: ${EXPEDIENTE_DB_OWNER_PASSWORD}
-      EXPEDIENTE_DB_APP_PASSWORD: ${EXPEDIENTE_DB_APP_PASSWORD}
-      EXPEDIENTE_DB_READONLY_PASSWORD: ${EXPEDIENTE_DB_READONLY_PASSWORD}
-
-      AUDIT_DB_OWNER_PASSWORD: ${AUDIT_DB_OWNER_PASSWORD}
-      AUDIT_DB_APP_PASSWORD: ${AUDIT_DB_APP_PASSWORD}
-      AUDIT_DB_READONLY_PASSWORD: ${AUDIT_DB_READONLY_PASSWORD}
-    volumes:
-      - ./deploy/postgres/test-privileges.sh:/test-privileges.sh:ro
-    entrypoint: ["sh", "/test-privileges.sh"]
-    depends_on:
-      migrate-tenancy:
-        condition: service_completed_successfully
-      migrate-agenda:
-        condition: service_completed_successfully
-      migrate-expediente:
-        condition: service_completed_successfully
-      migrate-audit:
-        condition: service_completed_successfully
-  # Migrations run as each database's owner role.
+  # Las migraciones corren con el rol dueño de cada base.
   migrate-tenancy:
     image: migrate/migrate:v4.18.3
     container_name: medicitas-migrate-tenancy
@@ -252,6 +270,7 @@ services:
     depends_on:
       db-init:
         condition: service_completed_successfully
+
   migrate-audit:
     image: migrate/migrate:v4.18.3
     container_name: medicitas-migrate-audit
@@ -264,94 +283,9 @@ services:
     depends_on:
       db-init:
         condition: service_completed_successfully
-  # --------------------------------------------------------------------------
-  # Audit/outbox integration test
-  # --------------------------------------------------------------------------
-  audit-invariants-test:
-    profiles: ["test"]
-    image: postgres:17-alpine
-    container_name: medicitas-audit-invariants-test
-    environment:
-      PGHOST: postgres
-      AGENDA_DB_OWNER_PASSWORD: ${AGENDA_DB_OWNER_PASSWORD}
-      AGENDA_DB_APP_PASSWORD: ${AGENDA_DB_APP_PASSWORD}
-      EXPEDIENTE_DB_OWNER_PASSWORD: ${EXPEDIENTE_DB_OWNER_PASSWORD}
-      EXPEDIENTE_DB_APP_PASSWORD: ${EXPEDIENTE_DB_APP_PASSWORD}
-      AUDIT_DB_OWNER_PASSWORD: ${AUDIT_DB_OWNER_PASSWORD}
-      AUDIT_DB_APP_PASSWORD: ${AUDIT_DB_APP_PASSWORD}
-    volumes:
-      - ./deploy/postgres/test-audit-invariants.sh:/test-audit-invariants.sh:ro
-    entrypoint: ["sh", "/test-audit-invariants.sh"]
-    depends_on:
-      migrate-agenda:
-        condition: service_completed_successfully
-      migrate-expediente:
-        condition: service_completed_successfully
-      migrate-audit:
-        condition: service_completed_successfully
-  # --------------------------------------------------------------------------
-  # P1 HTTP authentication / authorization / tenant-isolation smoke test
-  # --------------------------------------------------------------------------
-  p1-api-integration-test:
-    profiles: ["test"]
-    build:
-      context: .
-      args:
-        SERVICE: p1check
-    image: medicitas-p1-integration-test:dev
-    environment:
-      API_URL: http://proxy:8080
-      KEYCLOAK_URL: http://keycloak:8080
-      AGENDA_CLIENT_SECRET: ${AGENDA_CLIENT_SECRET}
-    depends_on:
-      proxy:
-        condition: service_started
-      keycloak:
-        condition: service_healthy
 
-  # --------------------------------------------------------------------------
-  # Agenda integration test: patients (RF14), contact audit (RF18), isolation (I5)
-  # --------------------------------------------------------------------------
-  agenda-api-integration-test:
-    profiles: ["test"]
-    build:
-      context: .
-      args:
-        SERVICE: agendacheck
-    image: medicitas-agenda-integration-test:dev
-    environment:
-      API_URL: http://proxy:8080
-      KEYCLOAK_URL: http://keycloak:8080
-    depends_on:
-      proxy:
-        condition: service_started
-      keycloak:
-        condition: service_healthy
-      audit:
-        condition: service_healthy
-
-  # --------------------------------------------------------------------------
-  # Real producer relay -> Audit integration test
-  # --------------------------------------------------------------------------
-  audit-relay-test:
-    profiles: ["test"]
-    image: postgres:17-alpine
-    container_name: medicitas-audit-relay-test
-    environment:
-      PGHOST: postgres
-      AGENDA_DB_APP_PASSWORD: ${AGENDA_DB_APP_PASSWORD}
-      EXPEDIENTE_DB_APP_PASSWORD: ${EXPEDIENTE_DB_APP_PASSWORD}
-      AUDIT_DB_APP_PASSWORD: ${AUDIT_DB_APP_PASSWORD}
-    volumes:
-      - ./deploy/postgres/test-relay-delivery.sh:/test-relay-delivery.sh:ro
-    entrypoint: ["sh", "/test-relay-delivery.sh"]
-    depends_on:
-      agenda:
-        condition: service_healthy
-      expediente:
-        condition: service_healthy
-      audit:
-        condition: service_healthy
+  # Carga los datos de ejemplo. Usa el superusuario porque es un trabajo de
+  # desarrollo; la semilla se puede ejecutar varias veces.
   db-seed:
     image: postgres:17-alpine
     container_name: medicitas-db-seed
@@ -377,48 +311,128 @@ services:
       migrate-audit:
         condition: service_completed_successfully
 
-  redis:
-    image: redis:7-alpine
-    container_name: medicitas-redis
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
+  # --------------------------------------------------------------------------
+  # Pruebas de integración (perfil "test")
+  #
+  # No arrancan con `docker compose up`. Se ejecutan con
+  # `docker compose --profile test run --rm <prueba>`; ver docs/pruebas.md.
+  # --------------------------------------------------------------------------
 
-  keycloak:
-    image: quay.io/keycloak/keycloak:26.0
-    container_name: medicitas-keycloak
-    command: ["start-dev", "--import-realm"]
+  # Fronteras de privilegios de PostgreSQL.
+  db-security-test:
+    profiles: ["test"]
+    image: postgres:17-alpine
+    container_name: medicitas-db-security-test
     environment:
-      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN}
-      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
-      # Fixes the issuer of every token, however Keycloak is reached.
-      KC_HOSTNAME: ${KEYCLOAK_PUBLIC_URL}
-      KC_HEALTH_ENABLED: "true"
-      # Resolved by the ${TENANCY_CLIENT_SECRET} placeholder in the realm file.
-      TENANCY_CLIENT_SECRET: ${TENANCY_CLIENT_SECRET}
-      AGENDA_CLIENT_SECRET: ${AGENDA_CLIENT_SECRET}
-      EXPEDIENTE_CLIENT_SECRET: ${EXPEDIENTE_CLIENT_SECRET}
-    ports:
-      - "127.0.0.1:${KEYCLOAK_PORT}:8080"
+      TENANCY_DB_OWNER_PASSWORD: ${TENANCY_DB_OWNER_PASSWORD}
+      TENANCY_DB_APP_PASSWORD: ${TENANCY_DB_APP_PASSWORD}
+      TENANCY_DB_READONLY_PASSWORD: ${TENANCY_DB_READONLY_PASSWORD}
+
+      AGENDA_DB_OWNER_PASSWORD: ${AGENDA_DB_OWNER_PASSWORD}
+      AGENDA_DB_APP_PASSWORD: ${AGENDA_DB_APP_PASSWORD}
+      AGENDA_DB_READONLY_PASSWORD: ${AGENDA_DB_READONLY_PASSWORD}
+
+      EXPEDIENTE_DB_OWNER_PASSWORD: ${EXPEDIENTE_DB_OWNER_PASSWORD}
+      EXPEDIENTE_DB_APP_PASSWORD: ${EXPEDIENTE_DB_APP_PASSWORD}
+      EXPEDIENTE_DB_READONLY_PASSWORD: ${EXPEDIENTE_DB_READONLY_PASSWORD}
+
+      AUDIT_DB_OWNER_PASSWORD: ${AUDIT_DB_OWNER_PASSWORD}
+      AUDIT_DB_APP_PASSWORD: ${AUDIT_DB_APP_PASSWORD}
+      AUDIT_DB_READONLY_PASSWORD: ${AUDIT_DB_READONLY_PASSWORD}
     volumes:
-      - ./keycloak:/opt/keycloak/data/import:ro
-    healthcheck:
-      # The image has no curl or wget; bash's /dev/tcp reaches the management
-      # port, where Keycloak reports readiness.
-      test:
-        - "CMD"
-        - "bash"
-        - "-c"
-        - >-
-          exec 3<>/dev/tcp/127.0.0.1/9000 &&
-          printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
-          grep -q '"UP"' <&3
-      interval: 10s
-      timeout: 5s
-      retries: 30
-      start_period: 30s
+      - ./deploy/postgres/test-privileges.sh:/test-privileges.sh:ro
+    entrypoint: ["sh", "/test-privileges.sh"]
+    depends_on:
+      migrate-tenancy:
+        condition: service_completed_successfully
+      migrate-agenda:
+        condition: service_completed_successfully
+      migrate-expediente:
+        condition: service_completed_successfully
+      migrate-audit:
+        condition: service_completed_successfully
+
+  # Inmutabilidad e idempotencia de la auditoría (I6).
+  audit-invariants-test:
+    profiles: ["test"]
+    image: postgres:17-alpine
+    container_name: medicitas-audit-invariants-test
+    environment:
+      PGHOST: postgres
+      AGENDA_DB_OWNER_PASSWORD: ${AGENDA_DB_OWNER_PASSWORD}
+      AGENDA_DB_APP_PASSWORD: ${AGENDA_DB_APP_PASSWORD}
+      EXPEDIENTE_DB_OWNER_PASSWORD: ${EXPEDIENTE_DB_OWNER_PASSWORD}
+      EXPEDIENTE_DB_APP_PASSWORD: ${EXPEDIENTE_DB_APP_PASSWORD}
+      AUDIT_DB_OWNER_PASSWORD: ${AUDIT_DB_OWNER_PASSWORD}
+      AUDIT_DB_APP_PASSWORD: ${AUDIT_DB_APP_PASSWORD}
+    volumes:
+      - ./deploy/postgres/test-audit-invariants.sh:/test-audit-invariants.sh:ro
+    entrypoint: ["sh", "/test-audit-invariants.sh"]
+    depends_on:
+      migrate-agenda:
+        condition: service_completed_successfully
+      migrate-expediente:
+        condition: service_completed_successfully
+      migrate-audit:
+        condition: service_completed_successfully
+
+  # Entrega real de los relays de Agenda y Expediente hacia Auditoría.
+  audit-relay-test:
+    profiles: ["test"]
+    image: postgres:17-alpine
+    container_name: medicitas-audit-relay-test
+    environment:
+      PGHOST: postgres
+      AGENDA_DB_APP_PASSWORD: ${AGENDA_DB_APP_PASSWORD}
+      EXPEDIENTE_DB_APP_PASSWORD: ${EXPEDIENTE_DB_APP_PASSWORD}
+      AUDIT_DB_APP_PASSWORD: ${AUDIT_DB_APP_PASSWORD}
+    volumes:
+      - ./deploy/postgres/test-relay-delivery.sh:/test-relay-delivery.sh:ro
+    entrypoint: ["sh", "/test-relay-delivery.sh"]
+    depends_on:
+      agenda:
+        condition: service_healthy
+      expediente:
+        condition: service_healthy
+      audit:
+        condition: service_healthy
+
+  # Autenticación, permisos y aislamiento entre clínicas por HTTP.
+  p1-api-integration-test:
+    profiles: ["test"]
+    build:
+      context: .
+      args:
+        SERVICE: p1check
+    image: medicitas-p1-integration-test:dev
+    environment:
+      API_URL: http://proxy:8080
+      KEYCLOAK_URL: http://keycloak:8080
+      AGENDA_CLIENT_SECRET: ${AGENDA_CLIENT_SECRET}
+    depends_on:
+      proxy:
+        condition: service_started
+      keycloak:
+        condition: service_healthy
+
+  # Agenda: pacientes (RF14), auditoría de contacto (RF18) y aislamiento (I5).
+  agenda-api-integration-test:
+    profiles: ["test"]
+    build:
+      context: .
+      args:
+        SERVICE: agendacheck
+    image: medicitas-agenda-integration-test:dev
+    environment:
+      API_URL: http://proxy:8080
+      KEYCLOAK_URL: http://keycloak:8080
+    depends_on:
+      proxy:
+        condition: service_started
+      keycloak:
+        condition: service_healthy
+      audit:
+        condition: service_healthy
 
 volumes:
   postgres_data:
