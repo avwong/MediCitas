@@ -23,7 +23,7 @@ El sistema usa una instancia de PostgreSQL con **una base de datos por servicio*
 | Base | Servicio | Tablas | Migraciones |
 |---|---|---|---|
 | `tenancy_db` | Tenancy | `roles`, `clinics`, `users` | `migrations/tenancy` |
-| `agenda_db` | Agenda | `clinics`, `specialties`, `services`, `practitioners`, `practitioner_services`, `patients`, `audit_outbox`, `audit_outbox_delivered` | `migrations/agenda` |
+| `agenda_db` | Agenda | `clinics`, `specialties`, `services`, `practitioners`, `practitioner_services`, `patients`, `schedules`, `blocks`, `appointments`, `audit_outbox`, `audit_outbox_delivered` | `migrations/agenda` |
 | `expediente_db` | Expediente | `clinical_notes`, `audit_outbox`, `audit_outbox_delivered` | `migrations/expediente` |
 | `audit_db` | Auditoría | `audit_log` | `migrations/audit` |
 
@@ -81,6 +81,12 @@ erDiagram
     specialties ||--o{ practitioners : "tiene"
     practitioners ||--o{ practitioner_services : "atiende"
     services ||--o{ practitioner_services : "es atendido por"
+    practitioners ||--o{ schedules : "atiende en"
+    practitioners ||--o{ blocks : "se ausenta en"
+    patients ||--o{ appointments : "reserva"
+    practitioners ||--o{ appointments : "atiende"
+    services ||--o{ appointments : "define la duración de"
+    appointments ||--o| appointments : "se reprograma en"
     audit_outbox ||--o| audit_outbox_delivered : "se entrega"
 
     clinics {
@@ -132,6 +138,41 @@ erDiagram
         timestamptz created_at
         timestamptz updated_at
     }
+    schedules {
+        uuid id PK
+        uuid clinic_id FK
+        uuid practitioner_id FK
+        smallint weekday "1 lunes a 7 domingo"
+        time start_time "hora local de la clínica"
+        time end_time
+        timestamptz created_at
+    }
+    blocks {
+        uuid id PK
+        uuid clinic_id FK
+        uuid practitioner_id FK
+        timestamptz starts_at
+        timestamptz ends_at
+        varchar reason
+        varchar created_by "subject de Keycloak"
+        timestamptz created_at
+    }
+    appointments {
+        uuid id PK
+        uuid clinic_id FK
+        uuid patient_id FK
+        uuid practitioner_id FK
+        uuid service_id FK
+        timestamptz starts_at
+        timestamptz ends_at "calculado por trigger (I4)"
+        varchar status "booked, attended, no_show, cancelled, rescheduled"
+        uuid rescheduled_from_id FK "cita anterior, si es una reprogramación"
+        varchar created_by "subject de Keycloak"
+        timestamptz created_at
+        varchar closed_by "quién la sacó de booked"
+        timestamptz closed_at
+        varchar cancellation_reason "solo si está cancelada"
+    }
     audit_outbox {
         uuid event_id PK
         uuid clinic_id
@@ -151,7 +192,7 @@ erDiagram
     }
 ```
 
-Las llaves foráneas hacia `specialties`, `services`, `practitioners` y entre `practitioner_services` y sus padres son **compuestas** `(clinic_id, id)`. El diagrama las dibuja como una sola línea para mantenerlo legible.
+Las llaves foráneas hacia `specialties`, `services`, `practitioners` y `patients`, entre `practitioner_services` y sus padres, y las de `schedules`, `blocks` y `appointments` son **compuestas** `(clinic_id, id)`. El diagrama las dibuja como una sola línea para mantenerlo legible.
 
 #### Expediente
 
@@ -295,6 +336,9 @@ La columna "Determinantes" lista las claves candidatas. Todas las demás columna
 | `practitioners` | `id`, `user_id`, `user_subject` | 3FN. `user_id` y `user_subject` son claves candidatas entre sí, no una dependencia transitiva |
 | `practitioner_services` | `(practitioner_id, service_id)` | 1FN y 3FN, con una **excepción de 2FN deliberada**: `clinic_id` depende solo de una parte de la clave (ver 1.4) |
 | `patients` | `id`, `(clinic_id, identification)` | 3FN. El contacto (teléfono, correo, dirección) depende del paciente, no de otro atributo |
+| `schedules` | `id` | 3FN. Cada fila es un bloque de atención; una restricción de exclusión impide que dos bloques del mismo profesional se solapen en un día |
+| `blocks` | `id` | 3FN |
+| `appointments` | `id` | 3FN, con una **excepción deliberada**: `ends_at` se deriva de `starts_at` y de la duración del servicio (ver 1.4) |
 | `audit_outbox` | `event_id` | Excepción deliberada: `resource_type` y `source_service` se derivan de `action` (ver 1.4) |
 | `audit_outbox_delivered` | `event_id` | 3FN |
 
@@ -324,12 +368,13 @@ El enunciado exige documentar cada desnormalización con su motivo. Estas son to
 | 5 | `audit_log` y `audit_outbox`: `resource_type` y `source_service` | Se derivan de `action` | La bitácora es un registro **inmutable** de hechos. Guardar el valor evita una tabla de acciones y un `JOIN` en cada consulta de auditoría | La migración fija con `CHECK` qué combinaciones son válidas, y el contrato del evento lo asigna el escritor del outbox |
 | 6 | `audit_log.actor_username` y `audit_outbox.actor_username` | Copia del nombre de usuario en el momento del evento | La bitácora conserva quién actuó aunque el usuario cambie o se dé de baja. La identidad estable es `actor_subject` | Es una instantánea de solo escritura, que el trigger de inmutabilidad impide modificar |
 | 7 | `audit_outbox.patient_id`, `clinic_id` (sin llave foránea) | Referencia lógica a `patients` | El outbox es append-only y no debe depender de que el paciente exista ni bloquear su escritura. En Expediente el mismo campo referencia a una base distinta | La aplicación escribe el evento dentro de la misma transacción que la operación sobre el paciente |
+| 8 | `appointments.ends_at` | Se deriva de `starts_at` y de `services.duration_minutes` | Las restricciones de exclusión de I1 e I2 necesitan el intervalo completo en la propia fila. Además fija la duración en el momento de reservar: si después cambia la duración del servicio, las citas ya reservadas conservan la suya | Un trigger lo calcula al insertar e ignora el valor que envíe la aplicación; otro trigger impide modificarlo después (I4) |
 
 > **Nota.** Los motivos de las filas 3 a 7 se leyeron de las migraciones y de los comentarios del código de Tenancy, Expediente y Auditoría, que no son de quien escribe este documento. Conviene confirmarlos con quien los diseñó antes de defenderlos.
 
 ### 1.5 Pendiente
 
-- **Horarios, bloqueos y citas de Agenda.** Se documentarán a partir de sus migraciones cuando existan. La arquitectura prevé una restricción de exclusión sobre `appointments` para I1 e I2 (ver la sección 3.4).
+- **Lógica de horarios, bloqueos y citas.** El esquema ya existe (migraciones `0005` a `0007` de Agenda), con las restricciones de exclusión de I1 e I2 (ver la sección 3.4). Faltan las rutas y los casos de uso que lo usan.
 - **Diccionario de datos** de las cuatro bases, que irá en esta sección.
 
 ---
@@ -527,7 +572,7 @@ Alta de una clínica (RF1): toca tres sistemas (la base de Tenancy, Keycloak y A
 
 | Invariante | Mecanismo | Dónde |
 |---|---|---|
-| **I1** Profesional sin citas solapadas | Restricción de exclusión `EXCLUDE USING gist (practitioner_id WITH =, tstzrange(starts_at, ends_at) WITH &&) WHERE (status = 'reservada')` (requiere `btree_gist`). Una reserva concurrente recibe `23P01` y se responde 409 "espacio ya tomado" | Agenda (motor) |
+| **I1** Profesional sin citas solapadas | Restricción de exclusión `EXCLUDE USING gist (practitioner_id WITH =, tstzrange(starts_at, ends_at) WITH &&) WHERE (status = 'booked')` (requiere `btree_gist`). Una reserva concurrente recibe `23P01` y se responde 409 "espacio ya tomado" | Agenda (motor) |
 | **I2** Paciente sin citas solapadas | Restricción de exclusión equivalente sobre `patient_id` | Agenda (motor) |
 | **I3** Dentro del horario y fuera de bloqueos | Validación dentro de la transacción de reserva, con bloqueo de la fila del profesional (`SELECT … FOR UPDATE`), que también toman la creación de bloqueos y los cambios de horario. Así un bloqueo no se cuela entre la validación y la inserción | Agenda |
 | **I4** Duración fijada por el servicio | `ends_at` se calcula a partir de la duración del servicio dentro del mismo `INSERT`, y un trigger impide modificarlo después | Agenda (motor) |
@@ -536,7 +581,7 @@ Alta de una clínica (RF1): toca tres sistemas (la base de Tenancy, Keycloak y A
 | **I7** Cancelar o reprogramar libera de inmediato | El cambio de estado excluye la cita de la restricción de exclusión en la misma transacción, y la caché se invalida tras el commit | Agenda |
 | **I8** La caché no contradice la base | Invalidación después del commit, con un número de versión por agenda (ver la sección 3.7) | Agenda y Redis |
 
-I1, I2, I3, I4 e I7 son diseño previsto: las tablas de horarios, bloqueos y citas todavía no existen en el repositorio.
+El esquema que sostiene I1, I2, I4 e I7 ya existe (migración `0007_appointments` de Agenda). I3 y el resto de la reserva son diseño previsto: la lógica de la aplicación todavía no está implementada.
 
 **Nivel de aislamiento de las transacciones.** Se propone **READ COMMITTED**, el que usa PostgreSQL por defecto, porque I1 e I2 los garantiza la restricción de exclusión y no la lectura previa. La decisión final, su comparación con SERIALIZABLE y el manejo de deadlocks (orden de bloqueo consistente y reintento ante `40P01` y `40001`) quedan para el documento de concurrencia de Agenda.
 

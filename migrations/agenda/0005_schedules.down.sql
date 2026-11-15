@@ -1,0 +1,3 @@
+DROP TABLE IF EXISTS schedules;
+
+DROP TYPE IF EXISTS timerange;
