@@ -67,8 +67,14 @@ func run(ctx context.Context) error {
 	)
 	patientHandler := agenda.NewPatientHandler(patients, app.Logger)
 
+	// Agenda del día (RF20) y conteo de citas por estado (RF21). Solo leen, así
+	// que no escriben en el outbox de auditoría.
+	reports := agenda.NewReports(agenda.NewPostgresReportStore(), app.Tx)
+	reportHandler := agenda.NewReportHandler(reports, app.Logger)
+
 	handler.RegisterRoutes(app.API)
 	patientHandler.RegisterRoutes(app.API)
+	reportHandler.RegisterRoutes(app.API)
 	handler.RegisterInternalRoutes(
 		app.Router.Group(
 			"/internal",
