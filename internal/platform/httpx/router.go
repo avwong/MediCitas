@@ -1,5 +1,6 @@
-// Package httpx holds the HTTP plumbing shared by every service: router,
-// middleware, error responses, health endpoints and the server lifecycle.
+// Package httpx reúne la infraestructura HTTP que comparten todos los
+// servicios: router, middleware, respuestas de error, rutas de salud y ciclo
+// de vida del servidor.
 package httpx
 
 import (
@@ -13,11 +14,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// maxBodyBytes bounds every request body.
+// maxBodyBytes limita el tamaño del cuerpo de cualquier petición.
 const maxBodyBytes = 1 << 20
 
-// NewRouter returns a gin engine with request IDs, access logs, panic
-// recovery and JSON responses for unknown routes.
+// NewRouter devuelve un motor de gin con ID de petición, log de accesos,
+// recuperación de panics y respuestas JSON para las rutas desconocidas.
 func NewRouter(logger *slog.Logger) *gin.Engine {
 	if os.Getenv("GIN_MODE") == "" {
 		gin.SetMode(gin.ReleaseMode)
@@ -44,8 +45,8 @@ func NewRouter(logger *slog.Logger) *gin.Engine {
 	return router
 }
 
-// RequestID reuses the incoming X-Request-ID or generates one, stores it in
-// the request context and echoes it in the response.
+// RequestID reutiliza el X-Request-ID que llega o genera uno, lo guarda en el
+// contexto de la petición y lo devuelve en la respuesta.
 func RequestID() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := strings.TrimSpace(c.GetHeader(requestid.Header))
@@ -61,8 +62,9 @@ func RequestID() gin.HandlerFunc {
 	}
 }
 
-// AccessLog writes one structured record per request. It logs the route
-// template, not the raw path, so identifiers do not end up in the logs.
+// AccessLog escribe un registro estructurado por petición. Registra la
+// plantilla de la ruta y no la ruta real, para que los identificadores no
+// terminen en los logs.
 func AccessLog(logger *slog.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
@@ -71,7 +73,8 @@ func AccessLog(logger *slog.Logger) gin.HandlerFunc {
 
 		route := c.FullPath()
 
-		// Health probes run every few seconds; logging them buries real traffic.
+		// Las sondas de salud llegan cada pocos segundos; registrarlas taparía
+		// el tráfico real.
 		if (route == "/health" || route == "/ready") && c.Writer.Status() < 400 {
 			return
 		}
@@ -92,7 +95,7 @@ func AccessLog(logger *slog.Logger) gin.HandlerFunc {
 	}
 }
 
-// Recovery turns a panic into a logged 500 response.
+// Recovery convierte un panic en una respuesta 500 que queda registrada.
 func Recovery(logger *slog.Logger) gin.HandlerFunc {
 	return gin.CustomRecovery(func(c *gin.Context, recovered any) {
 		logger.ErrorContext(

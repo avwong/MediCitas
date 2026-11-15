@@ -8,17 +8,18 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// PostgresStore reads pending events and records successful deliveries.
+// PostgresStore lee los eventos pendientes y registra las entregas exitosas.
 type PostgresStore struct {
 	pool *pgxpool.Pool
 }
 
-// NewPostgresStore creates the relay persistence store.
+// NewPostgresStore crea el almacén que usa el relay.
 func NewPostgresStore(pool *pgxpool.Pool) *PostgresStore {
 	return &PostgresStore{pool: pool}
 }
 
-// Pending returns events that have not been recorded as delivered.
+// Pending devuelve los eventos que todavía no están registrados como
+// entregados.
 func (s *PostgresStore) Pending(
 	ctx context.Context,
 	limit int,
@@ -89,7 +90,8 @@ func (s *PostgresStore) Pending(
 	return events, nil
 }
 
-// MarkDelivered records delivery without modifying the immutable outbox row.
+// MarkDelivered registra la entrega sin modificar la fila del outbox, que es
+// inmutable.
 func (s *PostgresStore) MarkDelivered(
 	ctx context.Context,
 	eventID string,

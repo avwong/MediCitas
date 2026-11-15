@@ -1,5 +1,5 @@
-// Package svcclient is the HTTP client services use to call each other and
-// to obtain client-credentials tokens from Keycloak.
+// Package svcclient es el cliente HTTP con el que los servicios se llaman
+// entre sí y obtienen tokens de client credentials en Keycloak.
 package svcclient
 
 import (
@@ -18,15 +18,16 @@ import (
 
 const maxResponseBytes = 1 << 20
 
-// Client calls another MediCitas service. It propagates the request ID and
-// maps the remote status code back to a domain error.
+// Client llama a otro servicio de MediCitas. Propaga el ID de la petición y
+// traduce el código de la respuesta a un error de dominio.
 type Client struct {
 	baseURL string
 	http    *http.Client
 }
 
-// New returns a client for the service at baseURL with a short timeout: a
-// slow dependency must fail fast instead of holding the caller's request.
+// New devuelve un cliente para el servicio en baseURL con un timeout corto:
+// una dependencia lenta debe fallar rápido en lugar de retener la petición de
+// quien llama.
 func New(baseURL string) *Client {
 	return &Client{
 		baseURL: strings.TrimRight(baseURL, "/"),
@@ -34,8 +35,8 @@ func New(baseURL string) *Client {
 	}
 }
 
-// Do sends a JSON request authenticated with bearerToken and decodes a JSON
-// response into out (when out is not nil).
+// Do envía una petición JSON autenticada con bearerToken y decodifica la
+// respuesta JSON en out (si out no es nil).
 func (c *Client) Do(
 	ctx context.Context,
 	method string,

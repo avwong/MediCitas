@@ -1,5 +1,5 @@
-// Package auth validates Keycloak access tokens and authorizes requests
-// against the permission matrix.
+// Package auth valida los tokens de acceso de Keycloak y autoriza las
+// peticiones según la matriz de permisos.
 package auth
 
 import (
@@ -10,26 +10,28 @@ import (
 	"github.com/coreos/go-oidc/v3/oidc"
 )
 
-// VerifierConfig configures token validation.
+// VerifierConfig configura la validación de tokens.
 type VerifierConfig struct {
-	// IssuerURL must match the iss claim exactly. Keycloak's KC_HOSTNAME fixes
-	// it, so tokens carry the same issuer however they were requested.
+	// IssuerURL debe coincidir exactamente con el claim iss. KC_HOSTNAME lo
+	// fija en Keycloak, así que los tokens traen el mismo emisor sin importar
+	// desde dónde se pidieron.
 	IssuerURL string
-	// JWKSURL is where the public keys are fetched, reached by service name
-	// inside the Compose network.
+	// JWKSURL es de donde se obtienen las llaves públicas. Se alcanza por
+	// nombre de servicio dentro de la red de Compose.
 	JWKSURL string
-	// Audience must appear in the aud claim. Keycloak adds it with an
+	// Audience debe aparecer en el claim aud. Keycloak lo agrega con un
 	// audience mapper.
 	Audience string
 }
 
-// Verifier validates access tokens: signature against the provider's public
-// keys, issuer, audience and expiration.
+// Verifier valida tokens de acceso: firma contra las llaves públicas del
+// proveedor, emisor, audiencia y expiración.
 type Verifier struct {
 	verifier *oidc.IDTokenVerifier
 }
 
-// NewVerifier returns a verifier. Keys are fetched lazily and cached.
+// NewVerifier devuelve un verificador. Las llaves se piden la primera vez que
+// hacen falta y quedan en caché.
 func NewVerifier(ctx context.Context, cfg VerifierConfig) (*Verifier, error) {
 	switch {
 	case cfg.IssuerURL == "":
@@ -49,7 +51,7 @@ func NewVerifier(ctx context.Context, cfg VerifierConfig) (*Verifier, error) {
 	return &Verifier{verifier: verifier}, nil
 }
 
-// Verify validates rawToken and returns its claims.
+// Verify valida rawToken y devuelve sus claims.
 func (v *Verifier) Verify(ctx context.Context, rawToken string) (Claims, error) {
 	token, err := v.verifier.Verify(ctx, rawToken)
 	if err != nil {

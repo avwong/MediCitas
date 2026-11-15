@@ -9,13 +9,13 @@ import (
 	"github.com/avwong/MediCitas/internal/platform/database"
 )
 
-// Writer appends immutable audit events to the producer's local outbox.
+// Writer agrega eventos de auditoría inmutables al outbox local del productor.
 type Writer struct {
 	source string
 	now    func() time.Time
 }
 
-// NewWriter creates an outbox writer for agenda or expediente.
+// NewWriter crea el escritor del outbox de Agenda o de Expediente.
 func NewWriter(source string) *Writer {
 	return &Writer{
 		source: source,
@@ -23,8 +23,8 @@ func NewWriter(source string) *Writer {
 	}
 }
 
-// Append writes event using db. Passing the transaction that performed the
-// audited operation makes both writes atomic.
+// Append escribe el evento usando db. Si db es la transacción que hizo la
+// operación auditada, las dos escrituras son atómicas.
 func (w *Writer) Append(
 	ctx context.Context,
 	db database.DBTX,
@@ -43,7 +43,8 @@ func (w *Writer) Append(
 		event.OccurredAt = w.now().UTC()
 	}
 
-	// Source is a property of this writer, not caller-controlled payload.
+	// El origen es una propiedad de este escritor; quien llama no puede
+	// elegirlo.
 	event.SourceService = w.source
 
 	normalized, err := NormalizeEvent(event)
@@ -91,7 +92,7 @@ func newUUID() (string, error) {
 		return "", err
 	}
 
-	// RFC 4122 version 4 / variant 1.
+	// RFC 4122, versión 4 y variante 1.
 	value[6] = (value[6] & 0x0f) | 0x40
 	value[8] = (value[8] & 0x3f) | 0x80
 

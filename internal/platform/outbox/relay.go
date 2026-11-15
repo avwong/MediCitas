@@ -8,18 +8,18 @@ import (
 	"time"
 )
 
-// QueueStore is the persistence boundary required by Relay.
+// QueueStore es la persistencia que necesita Relay.
 type QueueStore interface {
 	Pending(ctx context.Context, limit int) ([]Event, error)
 	MarkDelivered(ctx context.Context, eventID string) error
 }
 
-// Sink receives audit events.
+// Sink es el destino de los eventos de auditoría.
 type Sink interface {
 	Deliver(ctx context.Context, event Event) error
 }
 
-// Relay periodically delivers pending outbox events.
+// Relay entrega cada cierto tiempo los eventos pendientes del outbox.
 type Relay struct {
 	store    QueueStore
 	sink     Sink
@@ -28,7 +28,7 @@ type Relay struct {
 	batch    int
 }
 
-// NewRelay creates an audit relay.
+// NewRelay crea un relay de auditoría.
 func NewRelay(
 	store QueueStore,
 	sink Sink,
@@ -57,11 +57,11 @@ func NewRelay(
 	}
 }
 
-// RunOnce performs one delivery cycle.
+// RunOnce hace un ciclo de entrega.
 //
-// Delivery is intentionally at-least-once. If the audit service accepted an
-// event and this process crashes before MarkDelivered, the event is sent
-// again. The audit service deduplicates it by event_id.
+// La entrega es "al menos una vez" a propósito. Si Auditoría aceptó un evento
+// y este proceso se cae antes de MarkDelivered, el evento se envía de nuevo y
+// Auditoría lo descarta como repetido por su event_id.
 func (r *Relay) RunOnce(ctx context.Context) error {
 	events, err := r.store.Pending(ctx, r.batch)
 	if err != nil {
@@ -90,7 +90,7 @@ func (r *Relay) RunOnce(ctx context.Context) error {
 	return result
 }
 
-// Run keeps retrying until ctx is cancelled.
+// Run sigue entregando hasta que ctx se cancela.
 func (r *Relay) Run(ctx context.Context) {
 	run := func() {
 		if err := r.RunOnce(ctx); err != nil && ctx.Err() == nil {
@@ -102,7 +102,8 @@ func (r *Relay) Run(ctx context.Context) {
 		}
 	}
 
-	// Do not wait one interval before delivering events left from a previous run.
+	// El primer ciclo corre de inmediato, para no hacer esperar un intervalo a
+	// los eventos que quedaron de una ejecución anterior.
 	run()
 
 	ticker := time.NewTicker(r.interval)

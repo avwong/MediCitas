@@ -15,9 +15,10 @@ import (
 	"github.com/avwong/MediCitas/internal/platform/apperr"
 )
 
-// ClientCredentials obtains and caches access tokens with the OAuth 2.0
-// client-credentials grant. Services use it when they act on their own
-// behalf (provisioning, delivering audit events), not on a user's behalf.
+// ClientCredentials obtiene y guarda en caché tokens de acceso con el flujo
+// client credentials de OAuth 2.0. Los servicios lo usan cuando actúan por
+// cuenta propia (aprovisionar, entregar eventos de auditoría) y no en nombre
+// de un usuario.
 type ClientCredentials struct {
 	tokenURL     string
 	clientID     string
@@ -29,7 +30,8 @@ type ClientCredentials struct {
 	expiry time.Time
 }
 
-// NewClientCredentials returns a token source for the given Keycloak client.
+// NewClientCredentials devuelve una fuente de tokens para ese client de
+// Keycloak.
 func NewClientCredentials(tokenURL, clientID, clientSecret string) *ClientCredentials {
 	return &ClientCredentials{
 		tokenURL:     tokenURL,
@@ -39,8 +41,8 @@ func NewClientCredentials(tokenURL, clientID, clientSecret string) *ClientCreden
 	}
 }
 
-// Token returns a valid access token, requesting a new one shortly before the
-// cached one expires.
+// Token devuelve un token de acceso válido y pide uno nuevo poco antes de que
+// venza el que tiene en caché.
 func (s *ClientCredentials) Token(ctx context.Context) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
