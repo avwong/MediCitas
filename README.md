@@ -71,6 +71,8 @@ Usuarios de prueba:
 
 La semilla crea tres clínicas (Demo, Norte y Sur). Cada una tiene su administrador, su recepción y tres profesionales, y cada profesional atiende los servicios de su especialidad. Los profesionales de Agenda coinciden con usuarios de Tenancy y de Keycloak. La Clínica Sur usa la zona horaria `America/Bogota`, para probar que cada clínica respeta la suya.
 
+También trae horarios semanales (jornadas corridas, partidas y con sábado), cuatro bloqueos de agenda y 39 citas que cubren los cinco estados en cada clínica. Las fechas son fijas: la semana del 9 al 14 de noviembre de 2026 tiene citas ya cerradas (atendidas, ausentes, canceladas y reprogramadas) y la del 16 al 20 tiene citas reservadas, con el 16 como día de más movimiento. Una cita reservada del 19 de noviembre cae dentro de un bloqueo de la Clínica Demo, para probar los conflictos de RF6.
+
 Reglas que aplican todos los servicios:
 
 - Sin token, o con un token inválido o vencido: **401**.
