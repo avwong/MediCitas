@@ -102,7 +102,8 @@ Todas las rutas reciben y devuelven JSON. Los errores tienen la forma `{"error":
 `role` acepta `clinic_admin`, `reception` o `practitioner`. Cuando un usuario deja de ser `practitioner`, por cambio de rol o por baja, Tenancy desactiva a su profesional en Agenda, y lo reactiva si vuelve a tener ese rol. Si Agenda no responde, la operación devuelve 503 y se puede repetir. El alta de una clínica usa una saga pequeña para mantener coordinados Tenancy, Keycloak y la proyección de Agenda.
 
 ### Agenda
-Están implementados RF3, RF4, RF14, RF16, RF20 y RF21. Catálogo y profesionales (RF3 y RF4):
+
+Están implementados RF3 a RF14, RF16, RF20 y RF21. Catálogo y profesionales (RF3 y RF4):
 
 | Método y ruta | Rol | Entrada | Salida | Códigos |
 |---|---|---|---|---|
@@ -217,8 +218,6 @@ Reglas de las citas:
 
 Cómo se resuelven dos reservas simultáneas por el mismo espacio, el nivel de aislamiento, los candados y la política de la caché están explicados en [`docs/concurrencia-y-cache.md`](docs/concurrencia-y-cache.md).
 
-
-
 ### Expediente
 
 RF15 está implementado como dominio independiente y usa `notes:own`, permiso exclusivo del rol `practitioner`.
@@ -331,14 +330,15 @@ docker compose --profile test run --build --rm leak-integration-test
 docker compose --profile test run --build --rm citas-api-integration-test
 ~~~
 
+Lo que demuestra cada una, y qué prueba cubre cada requisito y cada invariante, está en [`docs/pruebas.md`](docs/pruebas.md).
+
 ## Estructura
 
 ~~~
 cmd/<servicio>/          binario de cada servicio
 internal/platform/       auth, DB/TxManager, HTTP, outbox, clientes internos
 internal/tenancy/        RF1 y RF2
-internal/agenda/         catálogo, pacientes, agenda del día, reportes y futuros módulos de Agenda
-internal/agenda/         catálogo, pacientes, horarios, disponibilidad y citas
+internal/agenda/         catálogo, pacientes, horarios, disponibilidad, citas, historial, agenda del día y reportes
 internal/expediente/     RF15
 internal/audit/          RF19 y almacén RF18
 migrations/<servicio>/   migraciones por base de datos
@@ -352,10 +352,10 @@ docs/                    diseño, concurrencia y caché, y pruebas
 
 | Implementado | Pendiente / integración futura |
 |---|---|
-| RF1 a RF15, RF17 y RF19 | RF16, RF20 y RF21 |
+| RF1 a RF17, RF19, RF20 y RF21 | — |
 | RF15 de punta a punta: BD, autorización, API, aislamiento lógico, auditoría de lectura y escritura y verificación de la cita en Agenda | — |
 | Infraestructura RF18: outbox transaccional, relay, bitácora central idempotente e inmutable, y productor de contacto de pacientes en Agenda, con pruebas de integración | — |
 | Bases por servicio, owner/app/readonly y aislamiento de credenciales | RLS y roles de dominio alineados con la matriz, según el módulo del equipo |
 | JWT/OIDC, permisos, `clinic_id` firmado, saga RF1 y clientes entre servicios | — |
-| Disponibilidad, reserva y ciclo de vida de la cita con sus invariantes (I1, I2, I3, I4, I7), caché de disponibilidad en Redis (I8) y medición con y sin caché | Semilla de horarios, bloqueos y citas |
-| Pruebas reales de privilegios, invariantes de auditoría, JWT/proxy, aislamiento multi-tenant, entrega de relays, citas, carrera y caché | Pruebas de integración de RF16, RF20 y RF21 |
+| Disponibilidad, reserva y ciclo de vida de la cita con sus invariantes (I1, I2, I3, I4, I7), caché de disponibilidad en Redis (I8) y medición con y sin caché, y datos de ejemplo de horarios, bloqueos y citas | — |
+| Pruebas reales de privilegios, invariantes de auditoría, JWT/proxy, aislamiento multi-tenant, entrega de relays, citas, carrera, caché, historial, agenda del día, conteo por estado y fuga entre clínicas en los cuatro servicios | — |

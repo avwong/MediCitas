@@ -394,7 +394,6 @@ La migración `0003` crea dos índices sobre `(clinic_id, specialty_id)`: `idx_s
 
 ### 1.6 Pendiente
 
-- **Datos de ejemplo de horarios, bloqueos y citas.** El esquema (migraciones `0005` a `0007` de Agenda) y las rutas ya existen; la semilla todavía no los llena.
 - **Diccionario de datos** de las cuatro bases, que irá en esta sección.
 
 ---
@@ -492,6 +491,8 @@ El enunciado pide demostrar I5 con pruebas automáticas que incluyan **intentos 
 | Aislamiento de la bitácora | Consultar desde otra clínica los eventos de auditoría de un paciente ajeno | `cmd/agendacheck` |
 | La clínica sale del actor | Verificar que todas las operaciones de pacientes usan la clínica del actor, y que ninguna entrada tiene un campo de clínica | `internal/agenda/patients_test.go` (unitarias) |
 | Aislamiento de servicios y usuarios | Leer servicios y usuarios de otra clínica, con la clínica falsificada en un encabezado | `cmd/p1check` |
+| Aislamiento de citas, horarios y bloqueos | Leer o modificar citas, horarios, bloqueos y disponibilidad de otra clínica, también con un `clinic_id` falsificado en el cuerpo o en la consulta | `cmd/citascheck` |
+| Aislamiento del historial, la agenda y el conteo | Ver el historial de un paciente, la agenda de un profesional o los conteos de otra clínica, con parámetros manipulados | `cmd/agendacheck` |
 | Fronteras entre bases | Conectarse con las credenciales de un servicio a la base de otro | `db-security-test` |
 | Matriz de las tres clínicas | Desde cada clínica, leer y modificar servicios, profesionales, pacientes, historiales, agendas, usuarios y notas clínicas de las otras dos, con `clinic_id` y `X-Clinic-Id` manipulados. Después comprueba que nada cambió | `cmd/leakcheck` (contra la pila real) |
 | Listados | Que los listados de usuarios, servicios, profesionales, pacientes y bitácora de cada clínica no traigan nada de otra, con parámetros manipulados | `cmd/leakcheck` |
@@ -607,9 +608,7 @@ Alta de una clínica (RF1): toca tres sistemas (la base de Tenancy, Keycloak y A
 | **I7** Cancelar o reprogramar libera de inmediato | El cambio de estado excluye la cita de la restricción de exclusión en la misma transacción, y la versión de la agenda en la caché sube antes y después del commit | Agenda |
 | **I8** La caché no contradice la base | Número de versión por agenda dentro de la clave, que sube antes y después del commit de cada cambio (ver la sección 3.7) | Agenda y Redis |
 
-Todos estos mecanismos están implementados. El nivel de aislamiento elegido, el manejo de deadlocks y las pruebas que lo demuestran están en [`concurrencia-y-cache.md`](concurrencia-y-cache.md).
-
-**Nivel de aislamiento de las transacciones.** Se propone **READ COMMITTED**, el que usa PostgreSQL por defecto, porque I1 e I2 los garantiza la restricción de exclusión y no la lectura previa. La decisión final, su comparación con SERIALIZABLE y el manejo de deadlocks (orden de bloqueo consistente y reintento ante `40P01` y `40001`) quedan para el documento de concurrencia de Agenda.
+Todos estos mecanismos están implementados, con el nivel de aislamiento **READ COMMITTED** (el de PostgreSQL por defecto), porque I1 e I2 los garantiza la restricción de exclusión y no una lectura previa. La comparación con SERIALIZABLE, el manejo de deadlocks y las pruebas que lo demuestran están en [`concurrencia-y-cache.md`](concurrencia-y-cache.md).
 
 ### 3.5 Identidad y autorización
 

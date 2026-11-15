@@ -1,6 +1,6 @@
 # Pruebas
 
-Este documento explica cómo ejecutar las pruebas y qué demuestra cada una. Será la base del informe de pruebas, que además debe indicar qué prueba cubre cada requisito funcional y cada invariante (ver sección 4).
+Este documento explica cómo ejecutar las pruebas y qué demuestra cada una. Incluye la trazabilidad de cada requisito funcional y cada invariante a las pruebas que lo cubren (sección 4).
 
 ## 1. Verificación completa con un solo comando
 
@@ -55,6 +55,7 @@ Validan el comportamiento de los paquetes, las reglas de autorización, la lógi
 - que el conteo devuelva siempre los cinco estados, con cero cuando no hay citas, y sume el total;
 - que todas las consultas usen la clínica del actor, en transacciones de solo lectura;
 - los permisos de cada rol sobre el historial, la agenda y el conteo.
+
 **Horarios, disponibilidad, citas y caché (RF5 a RF13), en `internal/agenda/scheduling_test.go`, `appointments_test.go` y `availability_cache_test.go`.** Cada prueba indica en un comentario `Cubre` lo que sostiene. Verifican, entre otras cosas:
 
 - el cálculo de los espacios a partir del horario, los bloqueos, las citas y la duración del servicio, en la zona horaria de la clínica;
@@ -186,12 +187,7 @@ Son 12 comprobaciones (`cmd/leakcheck`) sobre Tenancy, Agenda, Expediente y Audi
 
 Se pueden repetir sin preparar datos. La prueba de alta crea un usuario con un nombre único por ejecución y lo da de baja al terminar, así que quedan usuarios inactivos con el prefijo `fuga-`. Última línea esperada: `All tenant isolation leak checks passed.`
 
-## 4. Trazabilidad
-
-Pendiente. El informe de pruebas debe incluir una tabla que relacione cada requisito funcional y cada invariante con la prueba que lo cubre. Las pruebas de pacientes, historial, agenda y fuga ya llevan esa información en sus nombres y comentarios.
-
-Quedan por escribir, junto con los módulos que las necesitan, las pruebas de carrera y de caché.
-### 3.6 Agenda: horarios, disponibilidad, citas, carrera y caché
+### 3.7 Agenda: horarios, disponibilidad, citas, carrera y caché
 
 ~~~bash
 docker compose --profile test run --build --rm citas-api-integration-test
@@ -213,7 +209,7 @@ Una prueba necesita una cita cuya hora de inicio ya pasó (RF12). Como no se pue
 
 ## 4. Trazabilidad
 
-Las pruebas de integración se identifican por el nombre que imprimen; las unitarias, por el nombre de la función. `citascheck`, `agendacheck` y `p1check` son los programas de `cmd/`.
+Las pruebas de integración se identifican por el nombre que imprimen; las unitarias, por el nombre de la función. `citascheck`, `agendacheck`, `leakcheck` y `p1check` son los programas de `cmd/`.
 
 ### 4.1 Requisitos funcionales
 
@@ -232,11 +228,12 @@ Las pruebas de integración se identifican por el nombre que imprimen; las unita
 | RF13 | `citascheck`: `RF13 un estado final no admite ninguna transición`. Unitaria: `TestCanTransition` |
 | RF14 | `agendacheck` (sección 3.5) y `internal/agenda/patients_test.go` |
 | RF15 | `citascheck`: `RF15 una nota clínica sobre una cita atendida se acepta de punta a punta`, `RF15 la ruta interna de contexto de cita no se expone por el proxy`. Unitarias de `internal/expediente` |
-| RF16 | Pendiente (no implementado) |
+| RF16 | `agendacheck`: las siete pruebas `RF16 …` (historial ordenado, motivo de cancelación y reprogramación, historial vacío, límite, permisos, entradas inválidas y zona horaria) y `I5 el historial no cruza clínicas`. Unitarias: `TestHistory…` de `internal/agenda/reports_test.go` |
 | RF17 | `p1check`: 401 sin token, 403 con un rol que no corresponde y 200 con el adecuado. Unitarias de `internal/platform/auth`, entre ellas `TestPermissionMatrix` |
 | RF18 | `agendacheck`: `RF18 cada acceso al contacto queda en la bitácora, y solo esos`. Pruebas de invariantes de auditoría y de entrega de relays (secciones 3.2 y 3.4) |
-| RF19 | `agendacheck`: consulta de la bitácora por paciente. Unitarias de `internal/audit` |
-| RF20, RF21 | Pendiente (no implementado) |
+| RF19 | `agendacheck`: consulta de la bitácora por paciente. `leakcheck`: `RF19 Auditoría: solo el administrador de la clínica la consulta`. Unitarias de `internal/audit` |
+| RF20 | `agendacheck`: las seis pruebas `RF20 …` (toda la clínica, un profesional, filtro por estado, solo la agenda propia, entradas inválidas y zona horaria) y `RF17 la agenda exige token…`. Unitarias: `TestAgenda…` de `internal/agenda/reports_test.go` |
+| RF21 | `agendacheck`: las tres pruebas `RF21 …` (conteo contra la semilla, rango y estados en cero, entradas inválidas) y `RF17 el conteo exige token…`. Unitarias: `TestCountByStatus…` |
 
 ### 4.2 Invariantes
 
@@ -246,9 +243,7 @@ Las pruebas de integración se identifican por el nombre que imprimen; las unita
 | I2 | `citascheck`: `I2 el mismo paciente no puede tener dos citas solapadas con otro profesional`; `I2 carrera: el mismo paciente con dos profesionales a la vez…` |
 | I3 | `citascheck`: `I3 no se reserva fuera del horario de atención`; `RF6 I3 un bloqueo retira la disponibilidad y rechaza reservas`. Unitarias: `TestWithinSchedule`, `TestBookRejectsUnavailableSlots` |
 | I4 | `citascheck`: `I4 la duración la fija el servicio, no la petición` |
-| I5 | `citascheck`: `I5 otra clínica no ve ni modifica citas, horarios, bloqueos ni disponibilidad`, `I5 un clinic_id falsificado…`. `agendacheck`: las seis pruebas `I5` de pacientes y bitácora. `p1check`: aislamiento en Tenancy y en el catálogo |
+| I5 | `citascheck`: `I5 otra clínica no ve ni modifica citas, horarios, bloqueos ni disponibilidad`, `I5 un clinic_id falsificado…`. `agendacheck`: las seis pruebas `I5` de pacientes y bitácora, y las de historial, agenda y conteo. `p1check`: aislamiento en Tenancy y en el catálogo. `leakcheck`: las nueve pruebas `I5` de los cuatro servicios, entre ellas la matriz de las tres clínicas |
 | I6 | Sección 3.2 (`audit-invariants-test`) y sección 3.1 (`db-security-test`) |
 | I7 | `citascheck`: `RF10 I7 reprogramar libera el espacio anterior y ocupa el nuevo`; `RF11 I7 el espacio cancelado vuelve a estar disponible de inmediato` |
 | I8 | `citascheck`: `I8 la disponibilidad no ofrece un espacio recién reservado, aunque estuviera en caché`; `I8 un cambio en los servicios del profesional también invalida la caché`. Unitarias: `TestInvalidateOrphansPreviousEntries`, `TestStaleReadCannotOverwriteAnInvalidation`, `TestFailedInvalidationDisablesTheCacheForThatAgenda` |
-
-Quedan por escribir las pruebas de RF16, RF20 y RF21, y ampliar las de fuga entre clínicas de Tenancy, Expediente y Auditoría.
