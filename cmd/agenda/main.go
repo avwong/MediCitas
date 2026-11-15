@@ -1,3 +1,5 @@
+// Command agenda ejecuta el servicio de Agenda: catálogo, profesionales y
+// pacientes de cada clínica.
 package main
 
 import (
@@ -55,9 +57,9 @@ func run(ctx context.Context) error {
 	)
 	handler := agenda.NewHandler(catalog, app.Logger)
 
-	// Pacientes (RF14)
-	// El Writer deja los eventos de auditoría de contacto en el outbox de Agenda (RF18)
-	// Escribe en la misma transacción que la operación sobre el paciente
+	// Pacientes (RF14). El Writer deja los eventos de auditoría de contacto
+	// (RF18) en el outbox de Agenda, dentro de la misma transacción que la
+	// operación sobre el paciente.
 	patients := agenda.NewPatients(
 		agenda.NewPostgresPatientStore(),
 		app.Tx,

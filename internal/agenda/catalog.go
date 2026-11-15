@@ -17,8 +17,8 @@ const (
 	maxDisplayLength  = 160
 )
 
-// CatalogStore persists clinics, services and practitioners. Every method
-// that takes a clinicID only sees rows of that clinic (I5).
+// CatalogStore guarda clínicas, servicios y profesionales. Todo método que
+// recibe un clinicID solo ve filas de esa clínica (I5).
 type CatalogStore interface {
 	UpsertClinic(ctx context.Context, clinicID, timezone string) error
 	DeleteClinic(ctx context.Context, clinicID string) error
@@ -34,26 +34,26 @@ type CatalogStore interface {
 	ReplacePractitionerServices(ctx context.Context, clinicID, practitionerID string, serviceIDs []string) (Practitioner, error)
 }
 
-// StaffDirectory looks up users in the tenancy service on behalf of actor,
-// relaying the actor's token so tenancy applies the same clinic isolation.
+// StaffDirectory busca usuarios en Tenancy en nombre del actor y reenvía su
+// token, para que Tenancy aplique el mismo aislamiento entre clínicas.
 type StaffDirectory interface {
 	GetUser(ctx context.Context, actor auth.Actor, userID string) (StaffUser, error)
 }
 
-// Catalog implements RF3 and RF4 and the clinic provisioning that tenancy
-// triggers when a clinic is created.
+// Catalog implementa RF3 y RF4, y el aprovisionamiento que Tenancy dispara al
+// crear una clínica.
 type Catalog struct {
 	store CatalogStore
 	staff StaffDirectory
 }
 
-// NewCatalog returns the catalog use cases.
+// NewCatalog devuelve los casos de uso del catálogo.
 func NewCatalog(store CatalogStore, staff StaffDirectory) *Catalog {
 	return &Catalog{store: store, staff: staff}
 }
 
-// ProvisionClinic registers (or updates) the local projection of a clinic.
-// It is idempotent so tenancy can retry it.
+// ProvisionClinic registra (o actualiza) la proyección local de una clínica.
+// Es idempotente, así que Tenancy puede reintentarla.
 func (c *Catalog) ProvisionClinic(ctx context.Context, clinicID, timezone string) error {
 	clinicID, ok := ids.Normalize(clinicID)
 	if !ok {
@@ -70,8 +70,8 @@ func (c *Catalog) ProvisionClinic(ctx context.Context, clinicID, timezone string
 	return c.store.UpsertClinic(ctx, clinicID, timezone)
 }
 
-// DeprovisionClinic removes the local projection of a clinic that was never
-// used. It is the compensation step of tenancy's clinic creation saga.
+// DeprovisionClinic elimina la proyección local de una clínica que nunca se
+// usó. Es el paso de compensación de la saga con la que Tenancy crea clínicas.
 func (c *Catalog) DeprovisionClinic(ctx context.Context, clinicID string) error {
 	clinicID, ok := ids.Normalize(clinicID)
 	if !ok {
@@ -81,7 +81,7 @@ func (c *Catalog) DeprovisionClinic(ctx context.Context, clinicID string) error 
 	return c.store.DeleteClinic(ctx, clinicID)
 }
 
-// CreateService adds a service to the actor's clinic catalog (RF3).
+// CreateService agrega un servicio al catálogo de la clínica del actor (RF3).
 func (c *Catalog) CreateService(ctx context.Context, actor auth.Actor, in NewMedicalService) (MedicalService, error) {
 	in.Name = strings.TrimSpace(in.Name)
 	in.Specialty = strings.TrimSpace(in.Specialty)
@@ -98,12 +98,12 @@ func (c *Catalog) CreateService(ctx context.Context, actor auth.Actor, in NewMed
 	return c.store.CreateService(ctx, actor.ClinicID, in)
 }
 
-// ListServices returns the actor's clinic catalog.
+// ListServices devuelve el catálogo de la clínica del actor.
 func (c *Catalog) ListServices(ctx context.Context, actor auth.Actor) ([]MedicalService, error) {
 	return c.store.ListServices(ctx, actor.ClinicID)
 }
 
-// GetService returns one service of the actor's clinic.
+// GetService devuelve un servicio de la clínica del actor.
 func (c *Catalog) GetService(ctx context.Context, actor auth.Actor, serviceID string) (MedicalService, error) {
 	serviceID, ok := ids.Normalize(serviceID)
 	if !ok {
@@ -113,8 +113,8 @@ func (c *Catalog) GetService(ctx context.Context, actor auth.Actor, serviceID st
 	return c.store.GetService(ctx, actor.ClinicID, serviceID)
 }
 
-// DeactivateService withdraws a service from the catalog (logical delete).
-// Existing associations and appointments keep referring to it.
+// DeactivateService retira un servicio del catálogo (baja lógica). Las
+// asociaciones y las citas que ya existen lo siguen referenciando.
 func (c *Catalog) DeactivateService(ctx context.Context, actor auth.Actor, serviceID string) error {
 	serviceID, ok := ids.Normalize(serviceID)
 	if !ok {
@@ -124,9 +124,9 @@ func (c *Catalog) DeactivateService(ctx context.Context, actor auth.Actor, servi
 	return c.store.DeactivateService(ctx, actor.ClinicID, serviceID)
 }
 
-// CreatePractitioner registers a practitioner and the services they attend
-// (RF4). The user must exist in the actor's clinic with the practitioner role,
-// which is checked against the tenancy service with the actor's own token.
+// CreatePractitioner registra a un profesional y los servicios que atiende
+// (RF4). El usuario debe existir en la clínica del actor con el rol
+// practitioner, lo que se comprueba en Tenancy con el token del propio actor.
 func (c *Catalog) CreatePractitioner(
 	ctx context.Context,
 	actor auth.Actor,
@@ -160,7 +160,7 @@ func (c *Catalog) CreatePractitioner(
 	}
 
 	if user.ClinicID != actor.ClinicID {
-		// Defense in depth: tenancy already scopes the lookup to the clinic.
+		// Defensa en profundidad: Tenancy ya limita la búsqueda a la clínica.
 		return Practitioner{}, apperr.NotFound("user not found")
 	}
 
@@ -173,12 +173,12 @@ func (c *Catalog) CreatePractitioner(
 	return c.store.CreatePractitioner(ctx, actor.ClinicID, in, serviceIDs)
 }
 
-// ListPractitioners returns the practitioners of the actor's clinic.
+// ListPractitioners devuelve los profesionales de la clínica del actor.
 func (c *Catalog) ListPractitioners(ctx context.Context, actor auth.Actor) ([]Practitioner, error) {
 	return c.store.ListPractitioners(ctx, actor.ClinicID)
 }
 
-// GetPractitioner returns one practitioner of the actor's clinic.
+// GetPractitioner devuelve un profesional de la clínica del actor.
 func (c *Catalog) GetPractitioner(ctx context.Context, actor auth.Actor, practitionerID string) (Practitioner, error) {
 	practitionerID, ok := ids.Normalize(practitionerID)
 	if !ok {
@@ -188,9 +188,9 @@ func (c *Catalog) GetPractitioner(ctx context.Context, actor auth.Actor, practit
 	return c.store.GetPractitioner(ctx, actor.ClinicID, practitionerID)
 }
 
-// ReplacePractitionerServices sets the services a practitioner attends. Every
-// service must belong to the clinic, be active and require the practitioner's
-// specialty.
+// ReplacePractitionerServices define los servicios que atiende un profesional.
+// Cada servicio debe ser de la clínica, estar activo y requerir la
+// especialidad del profesional.
 func (c *Catalog) ReplacePractitionerServices(
 	ctx context.Context,
 	actor auth.Actor,
