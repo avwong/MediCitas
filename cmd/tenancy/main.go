@@ -1,4 +1,4 @@
-// Command tenancy runs the tenancy service: clinics and their users.
+// Command tenancy ejecuta el servicio de Tenancy: las clínicas y sus usuarios.
 package main
 
 import (

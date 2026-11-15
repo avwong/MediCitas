@@ -11,28 +11,27 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// Handler exposes the tenancy service over HTTP.
+// Handler expone el servicio de Tenancy por HTTP.
 type Handler struct {
 	service *Service
 	logger  *slog.Logger
 }
 
-// NewHandler returns the tenancy HTTP handler.
+// NewHandler devuelve el handler HTTP de Tenancy.
 func NewHandler(service *Service, logger *slog.Logger) *Handler {
 	return &Handler{service: service, logger: logger}
 }
 
-// RegisterRoutes adds the routes to api, which already requires a valid
-// token.
+// RegisterRoutes agrega las rutas a api, que ya exige un token válido.
 func (h *Handler) RegisterRoutes(api *gin.RouterGroup) {
 	api.GET("/me", h.Me)
 
-	// RF1: platform administration.
+	// RF1: administración de la plataforma.
 	platform := api.Group("/platform", auth.RequirePermission(auth.PermClinicsManage))
 	platform.POST("/clinics", h.CreateClinic)
 	platform.GET("/clinics", h.ListClinics)
 
-	// RF2: users of the caller's clinic.
+	// RF2: usuarios de la clínica de quien llama.
 	users := api.Group("/users", auth.RequirePermission(auth.PermUsersManage))
 	users.POST("", h.CreateUser)
 	users.GET("", h.ListUsers)
@@ -75,8 +74,8 @@ type updateRoleRequest struct {
 	Role string `json:"role"`
 }
 
-// Me handles GET /api/v1/me: who the caller is according to the token, and
-// their local record.
+// Me atiende GET /api/v1/me: quién es quien llama según el token, y su
+// registro local.
 func (h *Handler) Me(c *gin.Context) {
 	actor, ok := auth.CurrentActor(c)
 	if !ok {
@@ -96,7 +95,7 @@ func (h *Handler) Me(c *gin.Context) {
 		response["user_id"] = user.ID
 		response["active"] = user.Active
 	case errors.Is(err, apperr.ErrNotFound):
-		// Service accounts have no local record.
+		// Las cuentas de servicio no tienen registro local.
 	default:
 		httpx.WriteError(c, h.logger, err)
 		return
@@ -105,7 +104,7 @@ func (h *Handler) Me(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// CreateClinic handles POST /api/v1/platform/clinics.
+// CreateClinic atiende POST /api/v1/platform/clinics.
 func (h *Handler) CreateClinic(c *gin.Context) {
 	var request createClinicRequest
 	if !httpx.BindJSON(c, &request) {
@@ -126,7 +125,7 @@ func (h *Handler) CreateClinic(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"clinic": clinic, "admin": admin})
 }
 
-// ListClinics handles GET /api/v1/platform/clinics.
+// ListClinics atiende GET /api/v1/platform/clinics.
 func (h *Handler) ListClinics(c *gin.Context) {
 	clinics, err := h.service.ListClinics(c.Request.Context())
 	if err != nil {
@@ -137,7 +136,7 @@ func (h *Handler) ListClinics(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"items": clinics})
 }
 
-// CreateUser handles POST /api/v1/users.
+// CreateUser atiende POST /api/v1/users.
 func (h *Handler) CreateUser(c *gin.Context) {
 	actor, ok := auth.CurrentActor(c)
 	if !ok {
@@ -161,7 +160,7 @@ func (h *Handler) CreateUser(c *gin.Context) {
 	c.JSON(http.StatusCreated, user)
 }
 
-// ListUsers handles GET /api/v1/users.
+// ListUsers atiende GET /api/v1/users.
 func (h *Handler) ListUsers(c *gin.Context) {
 	actor, ok := auth.CurrentActor(c)
 	if !ok {
@@ -177,7 +176,7 @@ func (h *Handler) ListUsers(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"items": users})
 }
 
-// GetUser handles GET /api/v1/users/:id.
+// GetUser atiende GET /api/v1/users/:id.
 func (h *Handler) GetUser(c *gin.Context) {
 	actor, ok := auth.CurrentActor(c)
 	if !ok {
@@ -193,7 +192,7 @@ func (h *Handler) GetUser(c *gin.Context) {
 	c.JSON(http.StatusOK, user)
 }
 
-// UpdateUserRole handles PATCH /api/v1/users/:id/role.
+// UpdateUserRole atiende PATCH /api/v1/users/:id/role.
 func (h *Handler) UpdateUserRole(c *gin.Context) {
 	actor, ok := auth.CurrentActor(c)
 	if !ok {
@@ -214,7 +213,7 @@ func (h *Handler) UpdateUserRole(c *gin.Context) {
 	c.JSON(http.StatusOK, user)
 }
 
-// DeactivateUser handles DELETE /api/v1/users/:id (logical delete).
+// DeactivateUser atiende DELETE /api/v1/users/:id (baja lógica).
 func (h *Handler) DeactivateUser(c *gin.Context) {
 	actor, ok := auth.CurrentActor(c)
 	if !ok {

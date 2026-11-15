@@ -9,20 +9,20 @@ import (
 	"github.com/avwong/MediCitas/internal/platform/svcclient"
 )
 
-// AgendaClient implements AgendaProvisioner against the agenda's internal
-// routes, authenticated as the tenancy service account.
+// AgendaClient implementa AgendaProvisioner con las rutas internas de Agenda,
+// autenticado como la cuenta de servicio de Tenancy.
 type AgendaClient struct {
 	client *svcclient.Client
 	tokens *svcclient.ClientCredentials
 }
 
-// NewAgendaClient returns a client for the agenda service at baseURL.
+// NewAgendaClient devuelve un cliente para el servicio de Agenda en baseURL.
 func NewAgendaClient(baseURL string, tokens *svcclient.ClientCredentials) *AgendaClient {
 	return &AgendaClient{client: svcclient.New(baseURL), tokens: tokens}
 }
 
-// ProvisionClinic creates or updates the clinic's projection in the agenda.
-// The call is idempotent.
+// ProvisionClinic crea o actualiza la proyección de la clínica en Agenda. La
+// llamada es idempotente.
 func (a *AgendaClient) ProvisionClinic(ctx context.Context, clinicID, timezone string) error {
 	token, err := a.tokens.Token(ctx)
 	if err != nil {
@@ -39,8 +39,8 @@ func (a *AgendaClient) ProvisionClinic(ctx context.Context, clinicID, timezone s
 	)
 }
 
-// DeprovisionClinic removes the clinic's projection from the agenda. A
-// projection that is already gone counts as success.
+// DeprovisionClinic elimina la proyección de la clínica en Agenda. Si ya no
+// existe, también cuenta como éxito.
 func (a *AgendaClient) DeprovisionClinic(ctx context.Context, clinicID string) error {
 	token, err := a.tokens.Token(ctx)
 	if err != nil {
