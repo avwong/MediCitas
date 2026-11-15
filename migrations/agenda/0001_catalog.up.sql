@@ -1,9 +1,9 @@
--- Agenda: local projection of clinics, service catalog and practitioners.
+-- Agenda: proyección local de las clínicas, catálogo de servicios y
+-- profesionales.
 --
--- Every table carries clinic_id, and every relation between tables uses a
--- composite foreign key (clinic_id, id). The database therefore rejects any
--- row that points at a row of another clinic, whatever the application does
--- (I5).
+-- Todas las tablas llevan clinic_id, y toda relación entre tablas usa una
+-- llave foránea compuesta (clinic_id, id). Así la base rechaza cualquier fila
+-- que apunte a una fila de otra clínica, haga lo que haga la aplicación (I5).
 
 CREATE TABLE clinics (
     id UUID PRIMARY KEY,
@@ -65,8 +65,8 @@ CREATE TABLE practitioner_services (
         ON DELETE RESTRICT
 );
 
--- Supports "which practitioners attend this service" (RF8). The lookups by
--- clinic on services and practitioners are served by the composite unique
--- constraints above, whose indexes start with clinic_id.
+-- Sirve para "qué profesionales atienden este servicio" (RF8). Las búsquedas
+-- por clínica en services y practitioners las cubren las restricciones únicas
+-- compuestas de arriba, cuyos índices empiezan por clinic_id.
 CREATE INDEX idx_practitioner_services_service
     ON practitioner_services (clinic_id, service_id);

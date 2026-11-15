@@ -1,7 +1,7 @@
--- Agenda: pacientes de la clínica (RF14)
+-- Agenda: pacientes de la clínica (RF14).
 --
--- UNIQUE (clinic_id, id) permite que appointments referencie al paciente
--- La referencia es una llave foránea compuesta, como en el resto de las tablas (I5)
+-- UNIQUE (clinic_id, id) permite que appointments referencie al paciente con
+-- una llave foránea compuesta, como en el resto de las tablas (I5).
 
 CREATE TABLE patients (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -32,7 +32,8 @@ CREATE TABLE patients (
 COMMENT ON TABLE patients IS
     'phone, email y address son datos de contacto: toda lectura o escritura se audita (RF18).';
 
--- Índice para buscar pacientes por nombre dentro de una clínica
--- La búsqueda por identificación la sirve el índice de patients_clinic_identification_unique
+-- Índice para buscar pacientes por nombre dentro de una clínica. La búsqueda
+-- por identificación la cubre el índice de
+-- patients_clinic_identification_unique.
 CREATE INDEX idx_patients_clinic_name
     ON patients (clinic_id, lower(last_name), lower(first_name));

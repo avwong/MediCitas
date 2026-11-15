@@ -1,9 +1,9 @@
--- Tenancy: clinics and the users that work in them.
+-- Tenancy: las clínicas y los usuarios que trabajan en ellas.
 --
--- Keycloak holds the credentials and is the source of truth for each user's
--- role and clinic (both travel signed in the access token). These tables are
--- the platform's registry of clinics and of which identity belongs to which
--- clinic.
+-- Keycloak guarda las credenciales y es la fuente de verdad del rol y de la
+-- clínica de cada usuario (los dos viajan firmados en el token de acceso).
+-- Estas tablas son el registro de clínicas de la plataforma y de qué identidad
+-- pertenece a cuál clínica.
 
 CREATE TABLE roles (
     code VARCHAR(32) PRIMARY KEY,
@@ -41,8 +41,8 @@ CREATE TABLE users (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
-    -- A user belongs to exactly one clinic, except the platform
-    -- administrator, who belongs to none (RF2).
+    -- Un usuario pertenece a exactamente una clínica, salvo el administrador
+    -- de plataforma, que no pertenece a ninguna (RF2).
     CONSTRAINT users_tenant_role_check CHECK (
         (role_code = 'platform_admin' AND clinic_id IS NULL)
         OR
@@ -53,5 +53,5 @@ CREATE TABLE users (
 COMMENT ON COLUMN users.role_code IS
     'Copy of the Keycloak realm role, which is the source of truth. Updated after Keycloak on every role change.';
 
--- Serves the clinic's user listing (RF2).
+-- Cubre el listado de usuarios de la clínica (RF2).
 CREATE INDEX idx_users_clinic_username ON users (clinic_id, username);

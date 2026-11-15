@@ -1,10 +1,11 @@
--- Datos de ejemplo para tenancy_db
--- Cada usuario coincide con un usuario de Keycloak que tiene el mismo subject
--- Los usuarios de Keycloak están en keycloak/realm-export.json
+-- Datos de ejemplo para tenancy_db.
 --
--- Hay tres clínicas para poder probar el aislamiento entre clínicas (I5)
--- Cada clínica tiene su administrador, su recepción y tres profesionales
--- La tercera clínica usa otra zona horaria para probar que cada clínica respeta la suya
+-- Cada usuario coincide con un usuario de Keycloak que tiene el mismo subject;
+-- los usuarios de Keycloak están en keycloak/realm-export.json.
+--
+-- Hay tres clínicas, para poder probar el aislamiento entre clínicas (I5).
+-- Cada una tiene su administrador, su recepción y tres profesionales. La
+-- tercera usa otra zona horaria, para probar que cada clínica respeta la suya.
 
 INSERT INTO clinics (id, identifier, name, timezone, status)
 VALUES
