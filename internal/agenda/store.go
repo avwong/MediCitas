@@ -421,16 +421,24 @@ func (s *PostgresStore) ListPractitioners(ctx context.Context, clinicID string) 
 	return practitioners, nil
 }
 
-// SetPractitionerActiveByUser cambia el estado del profesional de ese usuario.
-// No lleva clinic_id porque user_id es único en toda la tabla y quien llama es
-// Tenancy, no un usuario de una clínica. Si el usuario no tiene profesional,
-// no hace nada.
-func (s *PostgresStore) SetPractitionerActiveByUser(ctx context.Context, userID string, active bool) error {
-	_, err := s.pool.Exec(ctx, `
+// SetPractitionerActiveByUser cambia el estado del profesional de ese usuario
+// y devuelve su clínica y su id. No lleva clinic_id porque user_id es único en
+// toda la tabla y quien llama es Tenancy, no un usuario de una clínica. Si el
+// usuario no tiene profesional no hace nada y devuelve los ids vacíos.
+func (s *PostgresStore) SetPractitionerActiveByUser(
+	ctx context.Context,
+	userID string,
+	active bool,
+) (clinicID, practitionerID string, err error) {
+	err = s.pool.QueryRow(ctx, `
 		UPDATE practitioners
 		SET active = $2
 		WHERE user_id = $1
-	`, userID, active)
+		RETURNING clinic_id::text, id::text
+	`, userID, active).Scan(&clinicID, &practitionerID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", "", nil
+	}
 
-	return database.MapError(err)
+	return clinicID, practitionerID, database.MapError(err)
 }

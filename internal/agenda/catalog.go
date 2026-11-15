@@ -32,7 +32,7 @@ type CatalogStore interface {
 	ListPractitioners(ctx context.Context, clinicID string) ([]Practitioner, error)
 	GetPractitioner(ctx context.Context, clinicID, practitionerID string) (Practitioner, error)
 	ReplacePractitionerServices(ctx context.Context, clinicID, practitionerID string, serviceIDs []string) (Practitioner, error)
-	SetPractitionerActiveByUser(ctx context.Context, userID string, active bool) error
+	SetPractitionerActiveByUser(ctx context.Context, userID string, active bool) (clinicID, practitionerID string, err error)
 }
 
 // StaffDirectory busca usuarios en Tenancy en nombre del actor y reenvía su
@@ -44,13 +44,35 @@ type StaffDirectory interface {
 // Catalog implementa RF3 y RF4, y el aprovisionamiento que Tenancy dispara al
 // crear una clínica.
 type Catalog struct {
-	store CatalogStore
-	staff StaffDirectory
+	store   CatalogStore
+	staff   StaffDirectory
+	agendas AgendaObserver
 }
+
+// AgendaObserver se entera de los cambios del catálogo que afectan a la
+// disponibilidad ya calculada: el estado de un profesional, los servicios que
+// atiende y el retiro de un servicio. Lo implementa *Scheduling, que invalida
+// la caché de esas agendas (I8).
+type AgendaObserver interface {
+	InvalidateAgendas(ctx context.Context, clinicID string, practitionerIDs ...string)
+	InvalidateService(ctx context.Context, clinicID, serviceID string)
+}
+
+// noAgendas es el observador cuando no hay ninguno registrado.
+type noAgendas struct{}
+
+func (noAgendas) InvalidateAgendas(context.Context, string, ...string) {}
+func (noAgendas) InvalidateService(context.Context, string, string)    {}
 
 // NewCatalog devuelve los casos de uso del catálogo.
 func NewCatalog(store CatalogStore, staff StaffDirectory) *Catalog {
-	return &Catalog{store: store, staff: staff}
+	return &Catalog{store: store, staff: staff, agendas: noAgendas{}}
+}
+
+// ObserveAgendas registra a quién avisar cuando el catálogo cambia algo que
+// afecta a la disponibilidad.
+func (c *Catalog) ObserveAgendas(observer AgendaObserver) {
+	c.agendas = observer
 }
 
 // ProvisionClinic registra (o actualiza) la proyección local de una clínica.
@@ -122,7 +144,13 @@ func (c *Catalog) DeactivateService(ctx context.Context, actor auth.Actor, servi
 		return apperr.Invalid("invalid service id")
 	}
 
-	return c.store.DeactivateService(ctx, actor.ClinicID, serviceID)
+	if err := c.store.DeactivateService(ctx, actor.ClinicID, serviceID); err != nil {
+		return err
+	}
+
+	c.agendas.InvalidateService(ctx, actor.ClinicID, serviceID)
+
+	return nil
 }
 
 // CreatePractitioner registra a un profesional y los servicios que atiende
@@ -208,7 +236,14 @@ func (c *Catalog) ReplacePractitionerServices(
 		return Practitioner{}, apperr.Invalid("service_ids must contain valid ids")
 	}
 
-	return c.store.ReplacePractitionerServices(ctx, actor.ClinicID, practitionerID, serviceIDs)
+	practitioner, err := c.store.ReplacePractitionerServices(ctx, actor.ClinicID, practitionerID, serviceIDs)
+	if err != nil {
+		return Practitioner{}, err
+	}
+
+	c.agendas.InvalidateAgendas(ctx, actor.ClinicID, practitionerID)
+
+	return practitioner, nil
 }
 
 // SetPractitionerActive activa o desactiva al profesional que corresponde a un
@@ -224,7 +259,16 @@ func (c *Catalog) SetPractitionerActive(ctx context.Context, userID string, acti
 		return apperr.Invalid("invalid user id")
 	}
 
-	return c.store.SetPractitionerActiveByUser(ctx, userID, active)
+	clinicID, practitionerID, err := c.store.SetPractitionerActiveByUser(ctx, userID, active)
+	if err != nil {
+		return err
+	}
+
+	if practitionerID != "" {
+		c.agendas.InvalidateAgendas(ctx, clinicID, practitionerID)
+	}
+
+	return nil
 }
 
 func validText(value string, maxLength int) bool {

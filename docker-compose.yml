@@ -88,6 +88,10 @@ services:
       AUDIT_URL: http://audit:8080
       OUTBOX_CLIENT_ID: agenda-service
       OUTBOX_CLIENT_SECRET: ${AGENDA_CLIENT_SECRET}
+      # Caché de disponibilidad (RF7). Con REDIS_ADDR vacío en el entorno,
+      # Agenda calcula cada consulta contra la base; se usa para medir la
+      # diferencia (docs/concurrencia-y-cache.md).
+      REDIS_ADDR: ${REDIS_ADDR-redis:6379}
     healthcheck: *service-healthcheck
     depends_on:
       <<: *service-dependencies
@@ -150,8 +154,8 @@ services:
       timeout: 5s
       retries: 20
 
-  # Reservado para la caché de disponibilidad (RF7, RF8). Agenda todavía no lo
-  # usa.
+  # Caché de disponibilidad de Agenda (RF7, RF8). No guarda nada que no se
+  # pueda recalcular desde PostgreSQL, así que no necesita volumen.
   redis:
     image: redis:7-alpine
     container_name: medicitas-redis
@@ -432,6 +436,43 @@ services:
       keycloak:
         condition: service_healthy
       audit:
+        condition: service_healthy
+
+  # Agenda: horarios, disponibilidad, caché y citas (RF5 a RF13), con la
+  # prueba de carrera y los invariantes I1, I2, I3, I4, I5, I7 e I8.
+  citas-api-integration-test:
+    profiles: ["test"]
+    build:
+      context: .
+      args:
+        SERVICE: citascheck
+    image: medicitas-citas-integration-test:dev
+    environment:
+      API_URL: http://proxy:8080
+      KEYCLOAK_URL: http://keycloak:8080
+    depends_on:
+      proxy:
+        condition: service_started
+      keycloak:
+        condition: service_healthy
+      expediente:
+        condition: service_healthy
+
+  # No es una prueba: mide la disponibilidad para comparar con y sin caché.
+  availability-benchmark:
+    profiles: ["test"]
+    build:
+      context: .
+      args:
+        SERVICE: availabilitybench
+    image: medicitas-availability-benchmark:dev
+    environment:
+      API_URL: http://proxy:8080
+      KEYCLOAK_URL: http://keycloak:8080
+    depends_on:
+      proxy:
+        condition: service_started
+      keycloak:
         condition: service_healthy
 
 volumes:
