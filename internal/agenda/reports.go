@@ -15,6 +15,10 @@ import (
 const (
 	reportDateLayout = "2006-01-02"
 	maxReportDays    = 366
+
+	// Límites del historial de un paciente (RF16).
+	defaultHistoryLimit = 50
+	maxHistoryLimit     = 200
 )
 
 // Estados de una cita. Coinciden con el CHECK de la migración 0007.
@@ -109,6 +113,31 @@ type StatusReport struct {
 	Total    int          `json:"total"`
 }
 
+// HistoryEntry es una cita en el historial de un paciente (RF16). Como el
+// historial es de un solo paciente, no repite sus datos en cada cita.
+type HistoryEntry struct {
+	ID string `json:"id"`
+	// Las horas salen en la zona horaria de la clínica.
+	StartsAt time.Time `json:"starts_at"`
+	EndsAt   time.Time `json:"ends_at"`
+	Status   string    `json:"status"`
+	// CancellationReason solo viene en las citas canceladas.
+	CancellationReason string `json:"cancellation_reason,omitempty"`
+	// RescheduledFromID viene en la cita que reprograma a otra, y apunta a la
+	// original.
+	RescheduledFromID string             `json:"rescheduled_from_id,omitempty"`
+	Practitioner      AgendaPractitioner `json:"practitioner"`
+	Service           AgendaService      `json:"service"`
+}
+
+// PatientHistory es el historial de citas de un paciente, de la más reciente
+// a la más antigua. Va sin datos de contacto del paciente.
+type PatientHistory struct {
+	Patient  AgendaPatient  `json:"patient"`
+	Timezone string         `json:"timezone"`
+	Items    []HistoryEntry `json:"items"`
+}
+
 // ReportStore consulta las citas de la clínica. Cada método recibe la
 // transacción en la que debe correr, y solo ve filas de la clínica recibida
 // (I5).
@@ -125,6 +154,12 @@ type ReportStore interface {
 	// CountByStatus cuenta las citas cuya hora de inicio cae entre las dos
 	// fechas, ambas incluidas.
 	CountByStatus(ctx context.Context, db database.DBTX, clinicID, timezone, from, to string) (map[string]int, error)
+	// Patient devuelve los datos básicos de un paciente de la clínica, sin
+	// contacto, o un not found si no existe en ella.
+	Patient(ctx context.Context, db database.DBTX, clinicID, patientID string) (AgendaPatient, error)
+	// History devuelve las citas del paciente, de la más reciente a la más
+	// antigua, hasta el límite indicado.
+	History(ctx context.Context, db database.DBTX, clinicID, patientID string, limit int) ([]HistoryEntry, error)
 }
 
 // ReportTxRunner lo implementa *database.TxManager.
@@ -136,7 +171,8 @@ type ReportTxRunner interface {
 	) error
 }
 
-// Reports implementa la agenda del día (RF20) y el conteo por estado (RF21).
+// Reports implementa el historial del paciente (RF16), la agenda del día (RF20)
+// y el conteo por estado (RF21).
 type Reports struct {
 	store ReportStore
 	tx    ReportTxRunner
@@ -309,6 +345,68 @@ func (r *Reports) CountByStatus(ctx context.Context, actor auth.Actor, from, to 
 	}
 
 	return report, nil
+}
+
+// History devuelve el historial de citas de un paciente de la clínica (RF16),
+// con el estado de cada una y de la más reciente a la más antigua.
+//
+// Un paciente de otra clínica responde 404, igual que uno inexistente. Cualquier
+// rol con permiso de historial puede consultar a cualquier paciente de su
+// clínica, también el profesional, porque ya puede leer todos los pacientes
+// (RF14). El historial no trae datos de contacto, así que no se audita y la
+// transacción es de solo lectura.
+func (r *Reports) History(ctx context.Context, actor auth.Actor, patientID string, limit int) (PatientHistory, error) {
+	patientID, ok := ids.Normalize(patientID)
+	if !ok {
+		return PatientHistory{}, apperr.Invalid("invalid patient id")
+	}
+
+	switch {
+	case limit < 0:
+		return PatientHistory{}, apperr.Invalid("limit must be positive")
+	case limit == 0:
+		limit = defaultHistoryLimit
+	case limit > maxHistoryLimit:
+		limit = maxHistoryLimit
+	}
+
+	var history PatientHistory
+
+	err := r.tx.Run(ctx, database.TxOptions{ClinicID: actor.ClinicID, ReadOnly: true}, func(ctx context.Context, tx *database.Tx) error {
+		timezone, err := r.store.ClinicTimezone(ctx, tx, actor.ClinicID)
+		if err != nil {
+			return err
+		}
+
+		patient, err := r.store.Patient(ctx, tx, actor.ClinicID, patientID)
+		if err != nil {
+			return err
+		}
+
+		items, err := r.store.History(ctx, tx, actor.ClinicID, patientID, limit)
+		if err != nil {
+			return err
+		}
+
+		history = PatientHistory{Patient: patient, Timezone: timezone, Items: items}
+
+		return nil
+	})
+	if err != nil {
+		return PatientHistory{}, err
+	}
+
+	location, err := time.LoadLocation(history.Timezone)
+	if err != nil {
+		return PatientHistory{}, err
+	}
+
+	for i := range history.Items {
+		history.Items[i].StartsAt = history.Items[i].StartsAt.In(location)
+		history.Items[i].EndsAt = history.Items[i].EndsAt.In(location)
+	}
+
+	return history, nil
 }
 
 // buildStatusReport arma el reporte con todos los estados, también los que no

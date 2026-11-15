@@ -196,3 +196,92 @@ func (s *PostgresReportStore) CountByStatus(
 
 	return counts, nil
 }
+
+// Patient devuelve los datos básicos de un paciente de la clínica, sin
+// contacto. Uno de otra clínica no se encuentra.
+func (s *PostgresReportStore) Patient(
+	ctx context.Context,
+	db database.DBTX,
+	clinicID, patientID string,
+) (AgendaPatient, error) {
+	var patient AgendaPatient
+
+	err := db.QueryRow(ctx, `
+		SELECT id::text, identification, first_name, last_name
+		FROM patients
+		WHERE clinic_id = $1 AND id = $2
+	`, clinicID, patientID).Scan(
+		&patient.ID,
+		&patient.Identification,
+		&patient.FirstName,
+		&patient.LastName,
+	)
+	if err != nil {
+		return AgendaPatient{}, database.MapError(err)
+	}
+
+	return patient, nil
+}
+
+// History devuelve las citas de un paciente, de la más reciente a la más
+// antigua. El orden y el filtro coinciden con idx_appointments_patient
+// (clinic_id, patient_id, starts_at DESC), así que la base lee las filas ya
+// ordenadas. Los textos opcionales sin valor salen vacíos.
+func (s *PostgresReportStore) History(
+	ctx context.Context,
+	db database.DBTX,
+	clinicID, patientID string,
+	limit int,
+) ([]HistoryEntry, error) {
+	rows, err := db.Query(ctx, `
+		SELECT
+			a.id::text, a.starts_at, a.ends_at, a.status,
+			COALESCE(a.cancellation_reason, ''),
+			COALESCE(a.rescheduled_from_id::text, ''),
+			pr.id::text, pr.display_name,
+			s.id::text, s.name, s.duration_minutes
+		FROM appointments a
+		JOIN practitioners pr
+			ON pr.clinic_id = a.clinic_id AND pr.id = a.practitioner_id
+		JOIN services s
+			ON s.clinic_id = a.clinic_id AND s.id = a.service_id
+		WHERE a.clinic_id = $1 AND a.patient_id = $2
+		ORDER BY a.starts_at DESC, a.id
+		LIMIT $3
+	`, clinicID, patientID, limit)
+	if err != nil {
+		return nil, database.MapError(err)
+	}
+	defer rows.Close()
+
+	items := make([]HistoryEntry, 0)
+
+	for rows.Next() {
+		var entry HistoryEntry
+
+		err := rows.Scan(
+			&entry.ID,
+			&entry.StartsAt,
+			&entry.EndsAt,
+			&entry.Status,
+			&entry.CancellationReason,
+			&entry.RescheduledFromID,
+			&entry.Practitioner.ID,
+			&entry.Practitioner.DisplayName,
+			&entry.Service.ID,
+			&entry.Service.Name,
+			&entry.Service.DurationMinutes,
+		)
+		if err != nil {
+			return nil, database.MapError(err)
+		}
+
+		items = append(items, entry)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, database.MapError(err)
+	}
+
+	return items, nil
+}

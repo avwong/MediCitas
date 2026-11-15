@@ -18,16 +18,16 @@ const (
 	otherPractitionerID = "c1c1c1c1-0000-4000-8000-000000000002"
 )
 
-// reportsAdmin, reportsReceptionist y reportsPractitioner son los actores de
-// las pruebas. Los tres son de la clínica A.
+// Actores de las pruebas
+// Los tres son de la clínica A
 var (
 	reportsAdmin        = auth.Actor{Subject: "admin-subject", ClinicID: clinicA, Role: auth.RoleClinicAdmin}
 	reportsReceptionist = auth.Actor{Subject: "reception-subject", ClinicID: clinicA, Role: auth.RoleReception}
 	reportsPractitioner = auth.Actor{Subject: "practitioner-subject", ClinicID: clinicA, Role: auth.RolePractitioner}
 )
 
-// fakeReportStore registra las llamadas que recibe. El SQL real se prueba
-// contra la base de datos, no aquí.
+// fakeReportStore registra las llamadas que recibe
+// El SQL real se prueba contra la base de datos, no aquí
 type fakeReportStore struct {
 	timezone string
 	// ownID es el profesional que corresponde al usuario que consulta.
@@ -37,9 +37,17 @@ type fakeReportStore struct {
 	entries []AgendaEntry
 	counts  map[string]int
 	err     error
-	// subjectErr es el error de PractitionerIDBySubject, aparte de err para
-	// probar solo ese paso.
+	// subjectErr es el error de PractitionerIDBySubject
+	// Va aparte de err para probar solo ese paso
 	subjectErr error
+	// patientErr es el error de Patient
+	// Va aparte de err para probar solo ese paso
+	patientErr error
+	history    []HistoryEntry
+	// historyLimit y historyPatientID son lo que recibió History
+	historyLimit     int
+	historyPatientID string
+	historyCalls     int
 
 	clinicIDs    []string
 	agendaQuery  AgendaQuery
@@ -86,9 +94,24 @@ func (s *fakeReportStore) CountByStatus(_ context.Context, _ database.DBTX, clin
 	return s.counts, s.err
 }
 
-// newTestReports arma el servicio con sus fakes. Reutiliza el fake de
-// transacciones de pacientes, que solo registra las opciones y ejecuta la
-// función.
+func (s *fakeReportStore) Patient(_ context.Context, _ database.DBTX, clinicID, patientID string) (AgendaPatient, error) {
+	s.clinicIDs = append(s.clinicIDs, clinicID)
+
+	return AgendaPatient{ID: patientID, Identification: "1-0801-0123", FirstName: "María", LastName: "Rojas"}, s.patientErr
+}
+
+func (s *fakeReportStore) History(_ context.Context, _ database.DBTX, clinicID, patientID string, limit int) ([]HistoryEntry, error) {
+	s.historyCalls++
+	s.historyLimit = limit
+	s.historyPatientID = patientID
+	s.clinicIDs = append(s.clinicIDs, clinicID)
+
+	return s.history, s.err
+}
+
+// newTestReports arma el servicio con sus fakes
+// Reutiliza el fake de transacciones de pacientes
+// Ese fake solo registra las opciones y ejecuta la función
 func newTestReports() (*Reports, *fakeReportStore, *fakePatientTx) {
 	store := &fakeReportStore{
 		timezone: "America/Costa_Rica",
@@ -96,6 +119,7 @@ func newTestReports() (*Reports, *fakeReportStore, *fakePatientTx) {
 		exists:   true,
 		entries:  []AgendaEntry{},
 		counts:   map[string]int{},
+		history:  []HistoryEntry{},
 	}
 	tx := &fakePatientTx{}
 
@@ -104,8 +128,8 @@ func newTestReports() (*Reports, *fakeReportStore, *fakePatientTx) {
 
 // Cubre RF20 (agenda del día)
 //
-// Las entradas inválidas se rechazan antes de abrir la transacción: nada llega
-// a la base de datos.
+// Una entrada inválida se rechaza antes de abrir la transacción
+// Nada llega a la base de datos
 func TestAgendaValidation(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -137,8 +161,9 @@ func TestAgendaValidation(t *testing.T) {
 // Cubre RF20 (agenda de toda la clínica para recepción)
 // Cubre I5 (la clínica sale del actor)
 //
-// Sin profesional, la agenda es la de toda la clínica del actor, en una
-// transacción de solo lectura que fija esa clínica.
+// Sin profesional, la agenda es la de toda la clínica del actor
+// Corre en una transacción de solo lectura
+// La transacción fija la clínica del actor
 func TestAgendaWithoutPractitionerIsClinicWideAndReadOnly(t *testing.T) {
 	reports, store, tx := newTestReports()
 
@@ -173,8 +198,9 @@ func TestAgendaWithoutPractitionerIsClinicWideAndReadOnly(t *testing.T) {
 // Cubre RF20 (agenda de un profesional)
 // Cubre I5 (un profesional de otra clínica no existe)
 //
-// Un profesional pedido por recepción debe existir en la clínica. Si no existe,
-// o es de otra clínica, responde 404 sin consultar las citas.
+// Un profesional pedido por recepción debe existir en la clínica
+// Si no existe, o es de otra clínica, responde 404
+// En ese caso no se consultan las citas
 func TestAgendaOfAnUnknownPractitionerIsNotFound(t *testing.T) {
 	reports, store, _ := newTestReports()
 	store.exists = false
@@ -194,7 +220,8 @@ func TestAgendaOfAnUnknownPractitionerIsNotFound(t *testing.T) {
 
 // Cubre RF20 (agenda de un profesional)
 //
-// Con un profesional que existe, la consulta se acota a él.
+// Con un profesional que existe, la consulta se acota a él
+// El id se normaliza
 func TestAgendaOfAPractitionerIsScopedToThem(t *testing.T) {
 	reports, store, _ := newTestReports()
 
@@ -218,8 +245,8 @@ func TestAgendaOfAPractitionerIsScopedToThem(t *testing.T) {
 
 // Cubre RF20 (el profesional consulta su propia agenda)
 //
-// Un profesional que no envía el parámetro recibe su propia agenda, no la de
-// toda la clínica.
+// Un profesional que no envía el parámetro recibe su propia agenda
+// No recibe la de toda la clínica
 func TestAgendaOfAPractitionerDefaultsToTheirOwn(t *testing.T) {
 	reports, store, _ := newTestReports()
 
@@ -239,7 +266,8 @@ func TestAgendaOfAPractitionerDefaultsToTheirOwn(t *testing.T) {
 
 // Cubre RF20 (el profesional consulta su propia agenda)
 //
-// Un profesional no puede ver la agenda de otro, y pedir la suya es válido.
+// Un profesional no puede ver la agenda de otro
+// Pedir la suya sí es válido
 func TestAgendaOfAnotherPractitionerIsForbidden(t *testing.T) {
 	reports, store, _ := newTestReports()
 
@@ -280,7 +308,8 @@ func TestAgendaOfAUserWithoutPractitionerProfileFails(t *testing.T) {
 
 // Cubre RF20 (el día se interpreta en la zona de la clínica)
 //
-// Las horas salen en la zona de la clínica: 14:00 UTC es 09:00 en Bogotá.
+// Las horas salen en la zona de la clínica
+// 14:00 UTC es 09:00 en Bogotá
 func TestAgendaReturnsTimesInTheClinicTimezone(t *testing.T) {
 	reports, store, _ := newTestReports()
 	store.timezone = "America/Bogota"
@@ -315,8 +344,8 @@ func TestAgendaPropagatesStoreErrors(t *testing.T) {
 
 // Cubre RF20 y RF18 (la agenda no expone datos de contacto)
 //
-// El paciente de la agenda no tiene teléfono, correo ni dirección. Si algún día
-// se agregaran, la lectura tendría que auditarse (RF18).
+// El paciente de la agenda no tiene teléfono, correo ni dirección
+// Si algún día se agregaran, la lectura tendría que auditarse (RF18)
 func TestAgendaPatientHasNoContactFields(t *testing.T) {
 	contact := map[string]bool{"phone": true, "email": true, "address": true}
 
@@ -332,8 +361,9 @@ func TestAgendaPatientHasNoContactFields(t *testing.T) {
 // Cubre RF21 (conteo por estado)
 // Cubre I5 (la clínica sale del actor)
 //
-// El conteo incluye siempre los cinco estados, con cero cuando no hay citas, y
-// suma el total.
+// El conteo incluye siempre los cinco estados
+// Los que no tienen citas salen en cero
+// El total es la suma de los cinco
 func TestCountByStatusFillsEveryStatusAndTheTotal(t *testing.T) {
 	reports, store, tx := newTestReports()
 	store.counts = map[string]int{StatusBooked: 9, StatusAttended: 4, StatusCancelled: 1}
@@ -369,8 +399,9 @@ func TestCountByStatusFillsEveryStatusAndTheTotal(t *testing.T) {
 
 // Cubre RF21 (rango de fechas)
 //
-// Un rango inválido se rechaza sin consultar. Un día solo (from igual a to) y
-// 366 días son válidos; 367 no.
+// Un rango inválido se rechaza sin consultar
+// Un día solo (from igual a to) es válido
+// 366 días son válidos y 367 no
 func TestCountByStatusValidatesTheRange(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -422,25 +453,205 @@ func TestCountByStatusPropagatesStoreErrors(t *testing.T) {
 	}
 }
 
-// Cubre RF20 y RF21 (permisos)
+// Cubre RF16 (historial de citas del paciente)
 //
-// La agenda es para administración, recepción y profesionales. El conteo por
-// estado es solo de administración, porque no está en la matriz del enunciado y
-// es un reporte de gestión.
+// Un id de paciente mal formado se rechaza antes de abrir la transacción
+// Un límite negativo también
+func TestHistoryValidation(t *testing.T) {
+	tests := []struct {
+		name      string
+		patientID string
+		limit     int
+	}{
+		{"id mal formado", "no-es-un-uuid", 0},
+		{"id vacío", "", 0},
+		{"límite negativo", testPatientID, -1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reports, store, tx := newTestReports()
+
+			_, err := reports.History(context.Background(), reportsReceptionist, tt.patientID, tt.limit)
+			if !errors.Is(err, apperr.ErrInvalidInput) {
+				t.Fatalf("error = %v, want invalid input", err)
+			}
+
+			if len(tx.options) != 0 || store.historyCalls != 0 {
+				t.Error("una entrada inválida no debe abrir transacción ni consultar")
+			}
+		})
+	}
+}
+
+// Cubre RF16 (historial de citas del paciente)
+// Cubre I5 (la clínica sale del actor)
+//
+// El historial usa la clínica del actor
+// Corre en una transacción de solo lectura
+// El id del paciente se normaliza
+func TestHistoryUsesTheActorsClinicAndIsReadOnly(t *testing.T) {
+	reports, store, tx := newTestReports()
+
+	history, err := reports.History(context.Background(), reportsReceptionist, strings.ToUpper(testPatientID), 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if store.historyPatientID != testPatientID || history.Patient.ID != testPatientID {
+		t.Errorf("paciente = %q, want %q normalizado", store.historyPatientID, testPatientID)
+	}
+
+	if len(tx.options) != 1 || !tx.options[0].ReadOnly || tx.options[0].ClinicID != clinicA {
+		t.Errorf("opciones de la transacción = %+v, want solo lectura con la clínica del actor", tx.options)
+	}
+
+	for _, id := range store.clinicIDs {
+		if id != clinicA {
+			t.Errorf("el almacén recibió la clínica %q, want %q", id, clinicA)
+		}
+	}
+
+	if history.Items == nil {
+		t.Error("sin citas debe devolver una lista vacía, no nula")
+	}
+}
+
+// Cubre RF16 (historial de citas del paciente)
+// Cubre I5 (un paciente de otra clínica no existe)
+//
+// Si el paciente no existe en la clínica, o es de otra, responde 404
+// En ese caso no se consultan sus citas
+func TestHistoryOfAnUnknownPatientIsNotFound(t *testing.T) {
+	reports, store, _ := newTestReports()
+	store.patientErr = apperr.NotFound("patient not found")
+
+	_, err := reports.History(context.Background(), reportsReceptionist, testPatientID, 0)
+	if !errors.Is(err, apperr.ErrNotFound) {
+		t.Fatalf("error = %v, want not found", err)
+	}
+
+	if store.historyCalls != 0 {
+		t.Error("no debe consultar las citas de un paciente que no existe en la clínica")
+	}
+}
+
+// Cubre RF16 (historial de citas del paciente)
+//
+// El límite por defecto es 50
+// Uno mayor al máximo se reduce a 200
+func TestHistoryLimit(t *testing.T) {
+	tests := []struct {
+		limit int
+		want  int
+	}{
+		{0, 50},
+		{10, 10},
+		{200, 200},
+		{5000, 200},
+	}
+
+	for _, tt := range tests {
+		reports, store, _ := newTestReports()
+
+		if _, err := reports.History(context.Background(), reportsReceptionist, testPatientID, tt.limit); err != nil {
+			t.Fatalf("limit %d: unexpected error: %v", tt.limit, err)
+		}
+
+		if store.historyLimit != tt.want {
+			t.Errorf("limit %d: el almacén recibió %d, want %d", tt.limit, store.historyLimit, tt.want)
+		}
+	}
+}
+
+// Cubre RF16 (cualquier rol con permiso de historial lo consulta)
+//
+// El profesional no queda restringido a sus pacientes
+// El historial es el mismo para todos los roles
+// El profesional ya puede leer todos los pacientes (RF14)
+func TestHistoryIsTheSameForEveryRole(t *testing.T) {
+	for _, actor := range []auth.Actor{reportsAdmin, reportsReceptionist, reportsPractitioner} {
+		reports, store, _ := newTestReports()
+
+		if _, err := reports.History(context.Background(), actor, testPatientID, 0); err != nil {
+			t.Fatalf("%s: unexpected error: %v", actor.Role, err)
+		}
+
+		if store.subjectCalls != 0 || store.historyPatientID != testPatientID {
+			t.Errorf("%s: el historial no debe depender del perfil de profesional", actor.Role)
+		}
+	}
+}
+
+// Cubre RF16 (historial de citas del paciente)
+//
+// Las horas salen en la zona de la clínica
+// La reprogramación y la cancelación conservan sus datos
+func TestHistoryReturnsTimesInTheClinicTimezone(t *testing.T) {
+	reports, store, _ := newTestReports()
+	store.timezone = "America/Bogota"
+
+	start := time.Date(2026, time.November, 9, 13, 0, 0, 0, time.UTC)
+	store.history = []HistoryEntry{{
+		ID:                 "x",
+		StartsAt:           start,
+		EndsAt:             start.Add(30 * time.Minute),
+		Status:             StatusCancelled,
+		CancellationReason: "no podía asistir",
+		RescheduledFromID:  "y",
+	}}
+
+	history, err := reports.History(context.Background(), reportsReceptionist, testPatientID, 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got := history.Items[0]
+	if history.Timezone != "America/Bogota" || got.StartsAt.Hour() != 8 || !got.StartsAt.Equal(start) {
+		t.Errorf("starts_at = %v en %q, want las 08:00 de Bogotá (el mismo instante)", got.StartsAt, history.Timezone)
+	}
+
+	if got.Status != StatusCancelled || got.CancellationReason != "no podía asistir" || got.RescheduledFromID != "y" {
+		t.Errorf("la cita perdió datos: %+v", got)
+	}
+}
+
+// Cubre RF16 (errores de la base de datos)
+func TestHistoryPropagatesStoreErrors(t *testing.T) {
+	reports, store, _ := newTestReports()
+	store.err = errors.New("boom")
+
+	if _, err := reports.History(context.Background(), reportsReceptionist, testPatientID, 0); err == nil {
+		t.Fatal("un error del almacén debe llegar al llamador")
+	}
+}
+
+// Cubre RF16, RF20 y RF21 (permisos)
+//
+// El historial sigue la matriz del enunciado
+// Lo leen administración, recepción y profesionales
+// La agenda es para esos mismos tres roles
+// El conteo por estado es solo de administración
+// No está en la matriz del enunciado y es un reporte de gestión
 func TestReportPermissionsPerRole(t *testing.T) {
 	tests := []struct {
-		role   auth.Role
-		agenda bool
-		report bool
+		role    auth.Role
+		history bool
+		agenda  bool
+		report  bool
 	}{
-		{auth.RoleClinicAdmin, true, true},
-		{auth.RoleReception, true, false},
-		{auth.RolePractitioner, true, false},
-		{auth.RolePlatformAdmin, false, false},
+		{auth.RoleClinicAdmin, true, true, true},
+		{auth.RoleReception, true, true, false},
+		{auth.RolePractitioner, true, true, false},
+		{auth.RolePlatformAdmin, false, false, false},
 	}
 
 	for _, tt := range tests {
 		t.Run(string(tt.role), func(t *testing.T) {
+			if got := auth.RoleHasPermission(tt.role, auth.PermHistoryRead); got != tt.history {
+				t.Errorf("history:read = %v, want %v", got, tt.history)
+			}
+
 			if got := auth.RoleHasPermission(tt.role, auth.PermAgendaRead); got != tt.agenda {
 				t.Errorf("agenda:read = %v, want %v", got, tt.agenda)
 			}
