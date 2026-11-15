@@ -46,6 +46,10 @@ try {
         docker compose --profile test run --build --rm agenda-api-integration-test
     }
 
+    Invoke-NativeStep "Appointments API integration and booking race" {
+        docker compose --profile test run --build --rm citas-api-integration-test
+    }
+
     Invoke-NativeStep "Database privilege boundaries" {
         docker compose --profile test run --rm db-security-test
     }
