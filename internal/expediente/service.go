@@ -13,10 +13,10 @@ import (
 	"github.com/avwong/MediCitas/internal/platform/outbox"
 )
 
-// AppointmentVerifier is the only Agenda capability Expediente depends on.
+// AppointmentVerifier es lo único de Agenda de lo que depende Expediente.
 //
-// P2/P3 may implement appointments however they need. Expediente only depends
-// on this stable contract.
+// Agenda puede implementar las citas como necesite; Expediente solo depende de
+// este contrato.
 type AppointmentVerifier interface {
 	ClinicalNoteContext(
 		ctx context.Context,
@@ -25,7 +25,7 @@ type AppointmentVerifier interface {
 	) (AppointmentContext, error)
 }
 
-// TxRunner is implemented by *database.TxManager.
+// TxRunner lo implementa *database.TxManager.
 type TxRunner interface {
 	Run(
 		ctx context.Context,
@@ -34,7 +34,7 @@ type TxRunner interface {
 	) error
 }
 
-// AuditWriter is implemented by *outbox.Writer.
+// AuditWriter lo implementa *outbox.Writer.
 type AuditWriter interface {
 	Append(
 		ctx context.Context,
@@ -43,7 +43,7 @@ type AuditWriter interface {
 	) (outbox.Event, error)
 }
 
-// Service implements RF15 and its RF18 audit obligations.
+// Service implementa RF15 y sus obligaciones de auditoría de RF18.
 type Service struct {
 	store        NoteStore
 	appointments AppointmentVerifier
@@ -51,7 +51,7 @@ type Service struct {
 	audit        AuditWriter
 }
 
-// NewService returns the clinical-note service.
+// NewService devuelve el servicio de notas clínicas.
 func NewService(
 	store NoteStore,
 	appointments AppointmentVerifier,
@@ -66,10 +66,11 @@ func NewService(
 	}
 }
 
-// Create attaches one clinical note to an attended appointment.
+// Create asocia una nota clínica a una cita atendida.
 //
-// Agenda is consulted before opening the expediente transaction. Once Agenda
-// confirms the appointment is attended, RF13 treats that status as final.
+// Se consulta a Agenda antes de abrir la transacción de Expediente. "Atendida"
+// es un estado final (RF13), así que una vez que Agenda lo confirma ya no
+// puede cambiar.
 func (s *Service) Create(
 	ctx context.Context,
 	actor auth.Actor,
@@ -156,10 +157,11 @@ func (s *Service) Create(
 	return note, nil
 }
 
-// Get returns one note owned by the authenticated practitioner.
+// Get devuelve una nota del profesional autenticado.
 //
-// The SELECT and clinical_note.read audit event occur in the same read-write
-// transaction. The note is not returned unless its audit record can commit.
+// El SELECT y el evento clinical_note.read ocurren en la misma transacción,
+// que por eso es de lectura y escritura. La nota no se devuelve si su registro
+// de auditoría no puede hacer commit.
 func (s *Service) Get(
 	ctx context.Context,
 	actor auth.Actor,
@@ -249,8 +251,8 @@ func validateAppointmentContext(
 		)
 	}
 
-	// Never allow a remote response to override the clinic from the signed
-	// user token.
+	// Una respuesta remota nunca sustituye a la clínica del token firmado del
+	// usuario.
 	if clinicID != actor.ClinicID {
 		return AppointmentContext{}, apperr.NotFound(
 			"appointment not found",
@@ -283,7 +285,7 @@ func validateAppointmentContext(
 		)
 	}
 
-	// Return 404 instead of exposing another practitioner's appointment.
+	// Se responde 404 para no revelar que existe la cita de otro profesional.
 	if practitionerSubject != actor.Subject {
 		return AppointmentContext{}, apperr.NotFound(
 			"appointment not found",
